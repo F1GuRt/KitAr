@@ -1,24 +1,31 @@
 package kit.developers.kitar;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.View;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * View для отображения 3D модели поверх камеры в реальном времени
+ * Оптимизированный View с кэшированием отрисованной модели в Bitmap
  */
 public class AROverlayView extends View {
 
     private static final String TAG = "AROverlayView";
+    private static final long FRAME_TIME_MS = 33; // ~30 FPS
 
     private Rect qrBounds;
     private List<Simple3DRenderer.Vector3> vertices;
@@ -26,11 +33,18 @@ public class AROverlayView extends View {
     private boolean isModelLoaded = false;
     private boolean showQR = false;
 
-    private Paint fillPaint;
-    private Paint strokePaint;
     private Paint qrPaint;
+    private Paint bitmapPaint;
 
-    // Трансформации
+    // Кэшированная отрисовка модели
+    private Bitmap cachedModelBitmap;
+    private Matrix transformMatrix;
+    private RectF lastQrBoundsF;
+
+    // Базовый размер для кэша (квадрат)
+    private static final int CACHE_SIZE = 8000;
+
+    // Трансформации модели
     private float modelScale = ModelConfig.SCALE;
     private float rotationX = ModelConfig.ROTATION_X;
     private float rotationY = ModelConfig.ROTATION_Y;
@@ -38,6 +52,21 @@ public class AROverlayView extends View {
     private float offsetX = ModelConfig.OFFSET_X;
     private float offsetY = ModelConfig.OFFSET_Y;
     private float offsetZ = ModelConfig.OFFSET_Z;
+
+    // Предвычисленные значения
+    private float cosX, sinX, cosY, sinY, cosZ, sinZ;
+
+    // Асинхронная генерация кэша
+    private ExecutorService renderExecutor;
+    private AtomicBoolean isGeneratingCache = new AtomicBoolean(false);
+    private AtomicBoolean needsRegenerateCache = new AtomicBoolean(true);
+
+    // FPS контроль
+    private long lastFrameTime = 0;
+
+    // Сглаживание
+    private float smoothCenterX, smoothCenterY, smoothScale;
+    private static final float SMOOTH_FACTOR = 0.95f;
 
     public AROverlayView(Context context) {
         super(context);
@@ -52,54 +81,188 @@ public class AROverlayView extends View {
     private void init() {
         setWillNotDraw(false);
 
-        fillPaint = new Paint();
-        fillPaint.setStyle(Paint.Style.FILL);
-        fillPaint.setAntiAlias(true);
-
-        strokePaint = new Paint();
-        strokePaint.setStyle(Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(2);
-        strokePaint.setAntiAlias(true);
-
         qrPaint = new Paint();
         qrPaint.setStyle(Paint.Style.STROKE);
         qrPaint.setColor(Color.argb(150, 0, 255, 0));
         qrPaint.setStrokeWidth(4);
+
+        bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+
+        transformMatrix = new Matrix();
+        lastQrBoundsF = new RectF();
+
+        renderExecutor = Executors.newSingleThreadExecutor();
+
+        precomputeTransforms();
     }
 
-    /**
-     * Устанавливает геометрию модели для рендеринга
-     */
+    private void precomputeTransforms() {
+        if (rotationX != 0) {
+            cosX = (float) Math.cos(rotationX);
+            sinX = (float) Math.sin(rotationX);
+        }
+        if (rotationY != 0) {
+            cosY = (float) Math.cos(rotationY);
+            sinY = (float) Math.sin(rotationY);
+        }
+        if (rotationZ != 0) {
+            cosZ = (float) Math.cos(rotationZ);
+            sinZ = (float) Math.sin(rotationZ);
+        }
+    }
+
     public void setModelGeometry(List<Simple3DRenderer.Vector3> vertices,
                                  List<Simple3DRenderer.Face> faces) {
         this.vertices = vertices;
         this.faces = faces;
         this.isModelLoaded = (vertices != null && !vertices.isEmpty() &&
                 faces != null && !faces.isEmpty());
-        Log.d(TAG, "Геометрия загружена: " + isModelLoaded);
+
+        if (isModelLoaded) {
+            Log.d(TAG, "Геометрия загружена: " + vertices.size() + " вершин");
+            needsRegenerateCache.set(true);
+            generateCachedModel();
+        }
     }
 
-    /**
-     * Обновляет позицию QR-кода для рендеринга
-     */
     public void updateQRPosition(Rect bounds) {
         if (bounds != null) {
             this.qrBounds = new Rect(bounds);
-            invalidate(); // Перерисовываем
+
+            // Генерируем кэш если нужно
+            if (needsRegenerateCache.get() && cachedModelBitmap == null) {
+                generateCachedModel();
+            }
+
+            // Контроль FPS
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastFrameTime >= FRAME_TIME_MS) {
+                lastFrameTime = currentTime;
+                invalidate();
+            }
         }
     }
 
     /**
-     * Очищает QR позицию (скрывает модель)
+     * Генерирует кэшированную отрисовку модели ОДИН РАЗ
      */
+    private void generateCachedModel() {
+        if (!isModelLoaded || isGeneratingCache.get()) {
+            return;
+        }
+
+        isGeneratingCache.set(true);
+
+        renderExecutor.execute(() -> {
+            try {
+                Log.d(TAG, "Генерация кэша модели...");
+
+                // Создаем bitmap для кэша
+                Bitmap bitmap = Bitmap.createBitmap(CACHE_SIZE, CACHE_SIZE, Bitmap.Config.ARGB_8888);
+                Canvas canvas = new Canvas(bitmap);
+
+                // Рендерим модель в центр bitmap
+                renderModelToCanvas(canvas, CACHE_SIZE, CACHE_SIZE);
+
+                // Сохраняем кэш
+                cachedModelBitmap = bitmap;
+                needsRegenerateCache.set(false);
+
+                Log.d(TAG, "Кэш модели готов!");
+
+                // Обновляем UI
+                postInvalidate();
+
+            } catch (Exception e) {
+                Log.e(TAG, "Ошибка генерации кэша", e);
+            } finally {
+                isGeneratingCache.set(false);
+            }
+        });
+    }
+
+    /**
+     * Рендерит 3D модель на canvas (вызывается ОДИН РАЗ для создания кэша)
+     */
+    private void renderModelToCanvas(Canvas canvas, int width, int height) {
+        float centerX = width / 2f;
+        float centerY = height / 2f;
+        float scale = width * 0.35f; // Модель занимает ~70% bitmap
+
+        // Проецируем вершины
+        List<ProjectedVertex> projectedVertices = new ArrayList<>();
+
+        for (Simple3DRenderer.Vector3 v : vertices) {
+            Simple3DRenderer.Vector3 transformed = transformVertex(v);
+            Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
+            projectedVertices.add(new ProjectedVertex(projected, transformed.z));
+        }
+
+        // Сортируем грани по глубине
+        List<FaceDepth> sortedFaces = new ArrayList<>();
+        for (Simple3DRenderer.Face face : faces) {
+            float avgDepth = 0;
+            for (int idx : face.indices) {
+                if (idx < projectedVertices.size()) {
+                    avgDepth += projectedVertices.get(idx).z;
+                }
+            }
+            avgDepth /= face.indices.length;
+            sortedFaces.add(new FaceDepth(face, avgDepth));
+        }
+
+        sortedFaces.sort((a, b) -> Float.compare(a.depth, b.depth));
+
+        // Рисуем грани
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+        strokePaint.setStrokeWidth(2);
+
+        Path path = new Path();
+
+        for (FaceDepth fd : sortedFaces) {
+            Simple3DRenderer.Face face = fd.face;
+
+            // Вычисляем нормаль для освещения
+            Simple3DRenderer.Vector3 normal = calculateNormal(face);
+            float brightness = Math.max(0.3f, Math.abs(normal.z) * 0.7f + 0.3f);
+
+            // Цвет
+            int baseR = (int)(ModelConfig.COLOR_R * brightness);
+            int baseG = (int)(ModelConfig.COLOR_G * brightness);
+            int baseB = (int)(ModelConfig.COLOR_B * brightness);
+
+            fillPaint.setColor(Color.argb(ModelConfig.ALPHA, baseR, baseG, baseB));
+            strokePaint.setColor(Color.argb(255, baseR / 2, baseG / 2, baseB / 2));
+
+            // Строим путь
+            path.rewind();
+            if (face.indices.length > 0 && face.indices[0] < projectedVertices.size()) {
+                Vector2 first = projectedVertices.get(face.indices[0]).position;
+                path.moveTo(first.x, first.y);
+
+                for (int i = 1; i < face.indices.length; i++) {
+                    if (face.indices[i] < projectedVertices.size()) {
+                        Vector2 point = projectedVertices.get(face.indices[i]).position;
+                        path.lineTo(point.x, point.y);
+                    }
+                }
+                path.close();
+
+                canvas.drawPath(path, fillPaint);
+                canvas.drawPath(path, strokePaint);
+            }
+        }
+    }
+
     public void clearQRPosition() {
         this.qrBounds = null;
         invalidate();
     }
 
-    /**
-     * Показывать/скрывать рамку QR
-     */
     public void setShowQRFrame(boolean show) {
         this.showQR = show;
         invalidate();
@@ -113,117 +276,75 @@ public class AROverlayView extends View {
             return;
         }
 
-        // Опционально рисуем рамку QR
+        // Рисуем рамку QR
         if (showQR) {
             canvas.drawRect(qrBounds, qrPaint);
         }
 
-        // Рендерим 3D модель
-        render3DModel(canvas);
+        // Рисуем кэшированную модель с трансформацией
+        if (cachedModelBitmap != null) {
+            drawTransformedModel(canvas);
+        }
     }
 
-    private void render3DModel(Canvas canvas) {
-        // Вычисляем центр QR-кода
+    /**
+     * БЫСТРАЯ отрисовка - просто трансформируем и рисуем готовый bitmap
+     */
+    private void drawTransformedModel(Canvas canvas) {
         float qrCenterX = qrBounds.centerX();
         float qrCenterY = qrBounds.centerY();
         float qrSize = Math.max(qrBounds.width(), qrBounds.height());
 
-        // Масштаб для модели
-        float scale = qrSize * modelScale * 0.8f;
+        // Целевая позиция и размер
+        float targetCenterX = qrCenterX + (offsetX * qrSize);
+        float targetCenterY = qrCenterY + (offsetY * qrSize);
+        float targetScale = (qrSize * modelScale * 0.8f) / (CACHE_SIZE * 0.35f);
 
-        // Применяем смещения
-        float centerX = qrCenterX + (offsetX * qrSize);
-        float centerY = qrCenterY + (offsetY * qrSize);
-
-        // Проецируем вершины
-        List<Vector2> projectedVertices = new ArrayList<>();
-        List<Float> zDepths = new ArrayList<>();
-
-        for (Simple3DRenderer.Vector3 v : vertices) {
-            Simple3DRenderer.Vector3 transformed = transformVertex(v);
-            Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
-            projectedVertices.add(projected);
-            zDepths.add(transformed.z);
+        // Плавное сглаживание
+        if (smoothCenterX == 0 && smoothCenterY == 0) {
+            smoothCenterX = targetCenterX;
+            smoothCenterY = targetCenterY;
+            smoothScale = targetScale;
+        } else {
+            smoothCenterX += (targetCenterX - smoothCenterX) * SMOOTH_FACTOR;
+            smoothCenterY += (targetCenterY - smoothCenterY) * SMOOTH_FACTOR;
+            smoothScale += (targetScale - smoothScale) * SMOOTH_FACTOR;
         }
 
-        // Сортируем грани по глубине
-        List<FaceDepth> sortedFaces = new ArrayList<>();
-        for (Simple3DRenderer.Face face : faces) {
-            float avgDepth = 0;
-            for (int idx : face.indices) {
-                if (idx < zDepths.size()) {
-                    avgDepth += zDepths.get(idx);
-                }
-            }
-            avgDepth /= face.indices.length;
-            sortedFaces.add(new FaceDepth(face, avgDepth));
-        }
+        // Создаем матрицу трансформации
+        transformMatrix.reset();
 
-        sortedFaces.sort((a, b) -> Float.compare(a.depth, b.depth));
+        // 1. Смещаем bitmap так чтобы центр был в (0,0)
+        transformMatrix.postTranslate(-CACHE_SIZE / 2f, -CACHE_SIZE / 2f);
 
-        // Рисуем грани
-        for (FaceDepth fd : sortedFaces) {
-            Simple3DRenderer.Face face = fd.face;
+        // 2. Масштабируем
+        transformMatrix.postScale(smoothScale, smoothScale);
 
-            // Вычисляем нормаль для освещения
-            Simple3DRenderer.Vector3 normal = calculateNormal(face);
-            float brightness = Math.max(0.3f, Math.abs(normal.z) * 0.7f + 0.3f);
+        // 3. Перемещаем в финальную позицию
+        transformMatrix.postTranslate(smoothCenterX, smoothCenterY);
 
-            // Цвет из конфигурации
-            int baseR = (int)(ModelConfig.COLOR_R * brightness);
-            int baseG = (int)(ModelConfig.COLOR_G * brightness);
-            int baseB = (int)(ModelConfig.COLOR_B * brightness);
-
-            fillPaint.setColor(Color.argb(ModelConfig.ALPHA, baseR, baseG, baseB));
-            strokePaint.setColor(Color.argb(255, baseR / 2, baseG / 2, baseB / 2));
-
-            // Рисуем грань
-            Path path = new Path();
-            if (face.indices.length > 0 && face.indices[0] < projectedVertices.size()) {
-                Vector2 first = projectedVertices.get(face.indices[0]);
-                path.moveTo(first.x, first.y);
-
-                for (int i = 1; i < face.indices.length; i++) {
-                    if (face.indices[i] < projectedVertices.size()) {
-                        Vector2 point = projectedVertices.get(face.indices[i]);
-                        path.lineTo(point.x, point.y);
-                    }
-                }
-                path.close();
-
-                canvas.drawPath(path, fillPaint);
-                canvas.drawPath(path, strokePaint);
-            }
-        }
+        // РИСУЕМ - это ОЧЕНЬ быстрая операция!
+        canvas.drawBitmap(cachedModelBitmap, transformMatrix, bitmapPaint);
     }
 
     private Simple3DRenderer.Vector3 transformVertex(Simple3DRenderer.Vector3 v) {
         float x = v.x, y = v.y, z = v.z;
 
-        // Поворот вокруг X
         if (rotationX != 0) {
-            float cosX = (float) Math.cos(rotationX);
-            float sinX = (float) Math.sin(rotationX);
             float y1 = y * cosX - z * sinX;
             float z1 = y * sinX + z * cosX;
             y = y1;
             z = z1;
         }
 
-        // Поворот вокруг Y
         if (rotationY != 0) {
-            float cosY = (float) Math.cos(rotationY);
-            float sinY = (float) Math.sin(rotationY);
             float x1 = x * cosY + z * sinY;
             float z1 = -x * sinY + z * cosY;
             x = x1;
             z = z1;
         }
 
-        // Поворот вокруг Z
         if (rotationZ != 0) {
-            float cosZ = (float) Math.cos(rotationZ);
-            float sinZ = (float) Math.sin(rotationZ);
             float x1 = x * cosZ - y * sinZ;
             float y1 = x * sinZ + y * cosZ;
             x = x1;
@@ -239,10 +360,8 @@ public class AROverlayView extends View {
                                   float centerX, float centerY) {
         float distance = 5.0f;
         float factor = scale / (distance + v.z);
-
         float x = v.x * factor + centerX;
         float y = -v.y * factor + centerY;
-
         return new Vector2(x, y);
     }
 
@@ -261,14 +380,12 @@ public class AROverlayView extends View {
         Simple3DRenderer.Vector3 v1 = vertices.get(face.indices[1]);
         Simple3DRenderer.Vector3 v2 = vertices.get(face.indices[2]);
 
-        Simple3DRenderer.Vector3 edge1 = new Simple3DRenderer.Vector3(
-                v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-        Simple3DRenderer.Vector3 edge2 = new Simple3DRenderer.Vector3(
-                v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+        float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
+        float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
 
-        float nx = edge1.y * edge2.z - edge1.z * edge2.y;
-        float ny = edge1.z * edge2.x - edge1.x * edge2.z;
-        float nz = edge1.x * edge2.y - edge1.y * edge2.x;
+        float nx = e1y * e2z - e1z * e2y;
+        float ny = e1z * e2x - e1x * e2z;
+        float nz = e1x * e2y - e1y * e2x;
 
         float length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
         if (length > 0) {
@@ -288,12 +405,31 @@ public class AROverlayView extends View {
         }
     }
 
+    private static class ProjectedVertex {
+        Vector2 position;
+        float z;
+        ProjectedVertex(Vector2 position, float z) {
+            this.position = position;
+            this.z = z;
+        }
+    }
+
     private static class FaceDepth {
         Simple3DRenderer.Face face;
         float depth;
         FaceDepth(Simple3DRenderer.Face face, float depth) {
             this.face = face;
             this.depth = depth;
+        }
+    }
+
+    public void cleanup() {
+        if (renderExecutor != null) {
+            renderExecutor.shutdown();
+        }
+        if (cachedModelBitmap != null && !cachedModelBitmap.isRecycled()) {
+            cachedModelBitmap.recycle();
+            cachedModelBitmap = null;
         }
     }
 }

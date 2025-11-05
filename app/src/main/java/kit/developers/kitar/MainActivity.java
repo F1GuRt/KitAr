@@ -294,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             // Увеличиваем контраст и яркость
             android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
-            cm.set(new float[] {
+            cm.set(new float[]{
                     1.5f, 0, 0, 0, -50,
                     0, 1.5f, 0, 0, -50,
                     0, 0, 1.5f, 0, -50,
@@ -566,22 +566,17 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        cameraExecutor.shutdown();
-        if (model3DRenderer != null) {
-            model3DRenderer.destroy();
-        }
-    }
+
+// Замените внутренний класс QRAnalyzer в MainActivity на этот код:
 
     /**
-     * Анализатор для реал-тайм сканирования QR-кодов
+     * Упрощенный анализатор - bitmap трансформация настолько быстрая,
+     * что можно обновлять чаще без лагов
      */
     private class QRAnalyzer implements androidx.camera.core.ImageAnalysis.Analyzer {
 
         private long lastAnalyzedTimestamp = 0;
-        private static final long ANALYSIS_INTERVAL_MS = 100; // Анализируем каждые 100мс
+        private static final long ANALYSIS_INTERVAL_MS = 100; // 10 раз/сек - можем позволить!
 
         @OptIn(markerClass = ExperimentalGetImage.class)
         @Override
@@ -614,10 +609,10 @@ public class MainActivity extends AppCompatActivity {
 
                                 // Проверяем правильность QR
                                 if (qrUrl != null && qrUrl.trim().equals(TARGET_URL.trim()) && bounds != null) {
-                                    // Масштабируем координаты с preview на view
+                                    // Масштабируем координаты
                                     Rect scaledBounds = scaleQRBounds(bounds, imageProxy, arOverlayView);
 
-                                    // Обновляем позицию для AR overlay
+                                    // Просто обновляем - это теперь ОЧЕНЬ быстро!
                                     runOnUiThread(() -> {
                                         arOverlayView.updateQRPosition(scaledBounds);
                                         statusText.setText("QR найден! Нажмите для фото");
@@ -677,6 +672,19 @@ public class MainActivity extends AppCompatActivity {
             int bottom = (int) (imageBounds.bottom * scaleY);
 
             return new Rect(left, top, right, bottom);
+        }
+    }
+
+    // Добавьте этот метод в MainActivity для очистки ресурсов:
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        cameraExecutor.shutdown();
+        if (model3DRenderer != null) {
+            model3DRenderer.destroy();
+        }
+        if (arOverlayView != null) {
+            arOverlayView.cleanup();
         }
     }
 }
