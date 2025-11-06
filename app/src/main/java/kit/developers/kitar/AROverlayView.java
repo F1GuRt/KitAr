@@ -11,6 +11,8 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 
 import java.util.ArrayList;
@@ -21,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Оптимизированный View с кэшированием отрисованной модели в Bitmap
+ * + поддержка масштабирования жестами
  */
 public class AROverlayView extends View {
 
@@ -53,6 +56,11 @@ public class AROverlayView extends View {
     private float offsetY = ModelConfig.OFFSET_Y;
     private float offsetZ = ModelConfig.OFFSET_Z;
 
+    // Пользовательский масштаб (через жесты)
+    private float userScale = 1.0f;
+    private static final float MIN_SCALE = 0.2f;
+    private static final float MAX_SCALE = 5.0f;
+
     // Предвычисленные значения
     private float cosX, sinX, cosY, sinY, cosZ, sinZ;
 
@@ -67,6 +75,15 @@ public class AROverlayView extends View {
     // Сглаживание
     private float smoothCenterX, smoothCenterY, smoothScale;
     private static final float SMOOTH_FACTOR = 0.95f;
+
+    // Детектор жестов масштабирования
+    private ScaleGestureDetector scaleGestureDetector;
+
+    // Listener для оповещения об изменении масштаба
+    public interface OnScaleChangeListener {
+        void onScaleChanged(float scale);
+    }
+    private OnScaleChangeListener scaleChangeListener;
 
     public AROverlayView(Context context) {
         super(context);
@@ -93,6 +110,9 @@ public class AROverlayView extends View {
 
         renderExecutor = Executors.newSingleThreadExecutor();
 
+        // Инициализируем детектор жестов
+        scaleGestureDetector = new ScaleGestureDetector(getContext(), new ScaleListener());
+
         precomputeTransforms();
     }
 
@@ -109,6 +129,67 @@ public class AROverlayView extends View {
             cosZ = (float) Math.cos(rotationZ);
             sinZ = (float) Math.sin(rotationZ);
         }
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        boolean handled = scaleGestureDetector.onTouchEvent(event);
+        return handled || super.onTouchEvent(event);
+    }
+
+    /**
+     * Слушатель жестов масштабирования
+     */
+    private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            float scaleFactor = detector.getScaleFactor();
+
+            // Применяем новый масштаб с ограничениями
+            userScale *= scaleFactor;
+            userScale = Math.max(MIN_SCALE, Math.min(userScale, MAX_SCALE));
+
+            // Оповещаем listener об изменении
+            if (scaleChangeListener != null) {
+                scaleChangeListener.onScaleChanged(userScale);
+            }
+
+            // Обновляем отрисовку
+            invalidate();
+
+            Log.d(TAG, "Масштаб изменен: " + userScale);
+            return true;
+        }
+    }
+
+    public void setOnScaleChangeListener(OnScaleChangeListener listener) {
+        this.scaleChangeListener = listener;
+    }
+
+    /**
+     * Получить текущий пользовательский масштаб
+     */
+    public float getUserScale() {
+        return userScale;
+    }
+
+    /**
+     * Установить пользовательский масштаб программно
+     */
+    public void setUserScale(float scale) {
+        this.userScale = Math.max(MIN_SCALE, Math.min(scale, MAX_SCALE));
+        invalidate();
+    }
+
+    /**
+     * Сбросить масштаб к исходному
+     */
+    public void resetScale() {
+        this.userScale = 1.0f;
+        if (scaleChangeListener != null) {
+            scaleChangeListener.onScaleChanged(userScale);
+        }
+        invalidate();
     }
 
     public void setModelGeometry(List<Simple3DRenderer.Vector3> vertices,
@@ -289,16 +370,17 @@ public class AROverlayView extends View {
 
     /**
      * БЫСТРАЯ отрисовка - просто трансформируем и рисуем готовый bitmap
+     * Теперь с учетом пользовательского масштаба
      */
     private void drawTransformedModel(Canvas canvas) {
         float qrCenterX = qrBounds.centerX();
         float qrCenterY = qrBounds.centerY();
         float qrSize = Math.max(qrBounds.width(), qrBounds.height());
 
-        // Целевая позиция и размер
+        // Целевая позиция и размер (теперь с userScale)
         float targetCenterX = qrCenterX + (offsetX * qrSize);
         float targetCenterY = qrCenterY + (offsetY * qrSize);
-        float targetScale = (qrSize * modelScale * 0.8f) / (CACHE_SIZE * 0.35f);
+        float targetScale = (qrSize * modelScale * userScale * 0.8f) / (CACHE_SIZE * 0.35f);
 
         // Плавное сглаживание
         if (smoothCenterX == 0 && smoothCenterY == 0) {

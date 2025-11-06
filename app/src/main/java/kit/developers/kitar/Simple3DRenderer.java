@@ -15,25 +15,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 3D рендерер с поддержкой OBJ моделей
+ * 3D рендерер с поддержкой OBJ моделей и пользовательского масштабирования
  */
 public class Simple3DRenderer {
 
     private static final String TAG = "Simple3DRenderer";
-    private static final String MODEL_PATH = "models/model.obj"; // Путь к OBJ файлу
+    private static final String MODEL_PATH = "models/model.obj";
 
     private Context context;
     private List<Vector3> vertices;
-
-    public List<Face> getFaces() {
-        return faces;
-    }
-
-    public List<Vector3> getVertices() {
-        return vertices;
-    }
-
     private List<Face> faces;
+
     // Настройки положения и ротации модели (загружаются из ModelConfig)
     private float modelScale = ModelConfig.SCALE;
     private float rotationX = ModelConfig.ROTATION_X;
@@ -43,18 +35,25 @@ public class Simple3DRenderer {
     private float offsetY = ModelConfig.OFFSET_Y;
     private float offsetZ = ModelConfig.OFFSET_Z;
 
+    // Пользовательский масштаб (от жестов)
+    private float userScale = 1.0f;
+
     private boolean isModelLoaded = false;
 
     public boolean isModelLoaded() {
         return isModelLoaded;
     }
 
+    public List<Face> getFaces() {
+        return faces;
+    }
+
+    public List<Vector3> getVertices() {
+        return vertices;
+    }
+
     /**
      * Установить настройки модели
-     * @param scale Масштаб (1.0 = нормальный размер, 2.0 = в 2 раза больше)
-     * @param rotX Поворот по X в радианах (-1.0 до 1.0)
-     * @param rotY Поворот по Y в радианах (-1.0 до 1.0)
-     * @param rotZ Поворот по Z в радианах (-1.0 до 1.0)
      */
     public void setModelTransform(float scale, float rotX, float rotY, float rotZ) {
         this.modelScale = scale;
@@ -65,9 +64,6 @@ public class Simple3DRenderer {
 
     /**
      * Установить смещение модели относительно центра QR
-     * @param offsetX Смещение по X (-1.0 = влево, 1.0 = вправо)
-     * @param offsetY Смещение по Y (-1.0 = вверх, 1.0 = вниз)
-     * @param offsetZ Смещение по Z (-1.0 = ближе, 1.0 = дальше)
      */
     public void setModelOffset(float offsetX, float offsetY, float offsetZ) {
         this.offsetX = offsetX;
@@ -75,12 +71,26 @@ public class Simple3DRenderer {
         this.offsetZ = offsetZ;
     }
 
+    /**
+     * Установить пользовательский масштаб (от жестов)
+     */
+    public void setUserScale(float scale) {
+        this.userScale = scale;
+        Log.d(TAG, "Пользовательский масштаб установлен: " + scale);
+    }
+
+    /**
+     * Получить текущий пользовательский масштаб
+     */
+    public float getUserScale() {
+        return userScale;
+    }
+
     public Simple3DRenderer(Context context) {
         this.context = context;
         try {
             loadOBJModel();
             if (!isModelLoaded) {
-                // Если OBJ не загрузился, используем fallback
                 android.widget.Toast.makeText(context, "OBJ не найден, используется куб",
                         android.widget.Toast.LENGTH_SHORT).show();
                 createSimpleCube();
@@ -90,7 +100,7 @@ public class Simple3DRenderer {
             }
         } catch (Exception e) {
             Log.e(TAG, "Ошибка в конструкторе", e);
-            createSimpleCube(); // Fallback
+            createSimpleCube();
             android.widget.Toast.makeText(context, "Используется тестовая модель",
                     android.widget.Toast.LENGTH_SHORT).show();
         }
@@ -113,7 +123,6 @@ public class Simple3DRenderer {
                 line = line.trim();
 
                 if (line.startsWith("v ")) {
-                    // Вершина
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 4) {
                         float x = Float.parseFloat(parts[1]);
@@ -122,13 +131,12 @@ public class Simple3DRenderer {
                         vertices.add(new Vector3(x, y, z));
                     }
                 } else if (line.startsWith("f ")) {
-                    // Грань
                     String[] parts = line.split("\\s+");
                     int[] indices = new int[parts.length - 1];
 
                     for (int i = 1; i < parts.length; i++) {
                         String indexStr = parts[i].split("/")[0];
-                        indices[i - 1] = Integer.parseInt(indexStr) - 1; // OBJ индексы с 1
+                        indices[i - 1] = Integer.parseInt(indexStr) - 1;
                     }
 
                     faceIndices.add(indices);
@@ -137,7 +145,6 @@ public class Simple3DRenderer {
 
             reader.close();
 
-            // Конвертируем индексы в Face объекты
             for (int[] indices : faceIndices) {
                 faces.add(new Face(indices));
             }
@@ -160,7 +167,6 @@ public class Simple3DRenderer {
     private void normalizeModel() {
         if (vertices.isEmpty()) return;
 
-        // Находим границы модели
         float minX = Float.MAX_VALUE, maxX = Float.MIN_VALUE;
         float minY = Float.MAX_VALUE, maxY = Float.MIN_VALUE;
         float minZ = Float.MAX_VALUE, maxZ = Float.MIN_VALUE;
@@ -174,18 +180,15 @@ public class Simple3DRenderer {
             maxZ = Math.max(maxZ, v.z);
         }
 
-        // Центрируем модель
         float centerX = (minX + maxX) / 2;
         float centerY = (minY + maxY) / 2;
         float centerZ = (minZ + maxZ) / 2;
 
-        // Находим максимальный размер
         float sizeX = maxX - minX;
         float sizeY = maxY - minY;
         float sizeZ = maxZ - minZ;
         float maxSize = Math.max(Math.max(sizeX, sizeY), sizeZ);
 
-        // Нормализуем вершины
         float scale = maxSize > 0 ? 2.0f / maxSize : 1.0f;
 
         for (Vector3 v : vertices) {
@@ -201,7 +204,6 @@ public class Simple3DRenderer {
         vertices = new ArrayList<>();
         faces = new ArrayList<>();
 
-        // Вершины куба
         vertices.add(new Vector3(-1, -1, -1));
         vertices.add(new Vector3(1, -1, -1));
         vertices.add(new Vector3(1, 1, -1));
@@ -211,7 +213,6 @@ public class Simple3DRenderer {
         vertices.add(new Vector3(1, 1, 1));
         vertices.add(new Vector3(-1, 1, 1));
 
-        // Грани куба
         faces.add(new Face(0, 1, 2, 3));
         faces.add(new Face(1, 5, 6, 2));
         faces.add(new Face(5, 4, 7, 6));
@@ -224,8 +225,6 @@ public class Simple3DRenderer {
 
     /**
      * Рендерит 3D модель на место QR-кода
-     * @param backgroundBitmap Фото с селфи
-     * @param qrBounds Координаты QR-кода на фото
      */
     public Bitmap renderModelOnBitmap(Bitmap backgroundBitmap, android.graphics.Rect qrBounds) {
         if (!isModelLoaded) {
@@ -241,14 +240,13 @@ public class Simple3DRenderer {
 
             Log.d(TAG, "Рендеринг на изображение " + width + "x" + height);
             Log.d(TAG, "QR позиция: " + qrBounds);
+            Log.d(TAG, "Пользовательский масштаб: " + userScale);
 
             Bitmap resultBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(resultBitmap);
 
-            // Рисуем оригинальное фото
             canvas.drawBitmap(backgroundBitmap, 0, 0, null);
 
-            // Рендерим 3D на место QR
             render3DAtPosition(canvas, width, height, qrBounds);
 
             Log.d(TAG, "Рендеринг завершен");
@@ -264,7 +262,6 @@ public class Simple3DRenderer {
     }
 
     public Bitmap renderModelOnBitmap(Bitmap backgroundBitmap) {
-        // Fallback метод если QR позиция не найдена - рендерим в центре
         android.graphics.Rect centerBounds = new android.graphics.Rect(
                 backgroundBitmap.getWidth() / 3,
                 backgroundBitmap.getHeight() / 3,
@@ -277,28 +274,25 @@ public class Simple3DRenderer {
     private void render3DAtPosition(Canvas canvas, int imgWidth, int imgHeight,
                                     android.graphics.Rect qrBounds) {
 
-        // Вычисляем центр QR-кода
         float qrCenterX = qrBounds.centerX();
         float qrCenterY = qrBounds.centerY();
 
-        // Размер QR-кода (берем больший из сторон для квадратного рендера)
         float qrSize = Math.max(qrBounds.width(), qrBounds.height());
 
-        // Масштаб для модели на основе размера QR
-        float scale = qrSize * modelScale * 0.8f; // 0.8 чтобы модель была чуть меньше QR
+        // Масштаб для модели на основе размера QR с учетом пользовательского масштаба
+        float scale = qrSize * modelScale * userScale * 0.8f;
 
-        // Применяем смещения
         float centerX = qrCenterX + (offsetX * qrSize);
         float centerY = qrCenterY + (offsetY * qrSize);
 
-        Log.d(TAG, "Рендеринг в позиции: X=" + centerX + ", Y=" + centerY + ", Scale=" + scale);
+        Log.d(TAG, "Рендеринг в позиции: X=" + centerX + ", Y=" + centerY +
+                ", Scale=" + scale + ", UserScale=" + userScale);
 
         // Проецируем вершины
         List<Vector2> projectedVertices = new ArrayList<>();
         List<Float> zDepths = new ArrayList<>();
 
         for (Vector3 v : vertices) {
-            // Применяем все трансформации
             Vector3 transformed = transformVertex(v);
             Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
             projectedVertices.add(projected);
@@ -318,7 +312,6 @@ public class Simple3DRenderer {
 
         sortedFaces.sort((a, b) -> Float.compare(a.depth, b.depth));
 
-        // Настройка красок
         Paint fillPaint = new Paint();
         fillPaint.setStyle(Paint.Style.FILL);
         fillPaint.setAntiAlias(true);
@@ -329,17 +322,13 @@ public class Simple3DRenderer {
         strokePaint.setStrokeWidth(2);
         strokePaint.setAntiAlias(true);
 
-        // Рисуем грани
         for (FaceDepth fd : sortedFaces) {
             Face face = fd.face;
 
-            // Вычисляем нормаль для освещения
             Vector3 normal = calculateNormal(face);
 
-            // Освещение с учетом нормали
             float brightness = Math.max(0.3f, Math.abs(normal.z) * 0.7f + 0.3f);
 
-            // Цвет из конфигурации
             int baseR = (int)(ModelConfig.COLOR_R * brightness);
             int baseG = (int)(ModelConfig.COLOR_G * brightness);
             int baseB = (int)(ModelConfig.COLOR_B * brightness);
@@ -347,7 +336,6 @@ public class Simple3DRenderer {
             fillPaint.setColor(Color.argb(ModelConfig.ALPHA, baseR, baseG, baseB));
             strokePaint.setColor(Color.argb(255, baseR / 2, baseG / 2, baseB / 2));
 
-            // Рисуем грань
             Path path = new Path();
             Vector2 first = projectedVertices.get(face.indices[0]);
             path.moveTo(first.x, first.y);
@@ -369,7 +357,6 @@ public class Simple3DRenderer {
     private Vector3 transformVertex(Vector3 v) {
         float x = v.x, y = v.y, z = v.z;
 
-        // Поворот вокруг X
         if (rotationX != 0) {
             float cosX = (float) Math.cos(rotationX);
             float sinX = (float) Math.sin(rotationX);
@@ -379,7 +366,6 @@ public class Simple3DRenderer {
             z = z1;
         }
 
-        // Поворот вокруг Y
         if (rotationY != 0) {
             float cosY = (float) Math.cos(rotationY);
             float sinY = (float) Math.sin(rotationY);
@@ -389,7 +375,6 @@ public class Simple3DRenderer {
             z = z1;
         }
 
-        // Поворот вокруг Z
         if (rotationZ != 0) {
             float cosZ = (float) Math.cos(rotationZ);
             float sinZ = (float) Math.sin(rotationZ);
@@ -399,14 +384,12 @@ public class Simple3DRenderer {
             y = y1;
         }
 
-        // Применяем смещение по Z
         z += offsetZ;
 
         return new Vector3(x, y, z);
     }
 
     private Vector2 projectVertex(Vector3 v, float scale, float centerX, float centerY) {
-        // Перспективная проекция
         float distance = 5.0f;
         float factor = scale / (distance + v.z);
 
@@ -428,12 +411,10 @@ public class Simple3DRenderer {
         Vector3 edge1 = new Vector3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
         Vector3 edge2 = new Vector3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
 
-        // Векторное произведение
         float nx = edge1.y * edge2.z - edge1.z * edge2.y;
         float ny = edge1.z * edge2.x - edge1.x * edge2.z;
         float nz = edge1.x * edge2.y - edge1.y * edge2.x;
 
-        // Нормализация
         float length = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
         if (length > 0) {
             nx /= length;
@@ -444,7 +425,7 @@ public class Simple3DRenderer {
         return new Vector3(nx, ny, nz);
     }
 
-    // Вспомогательные классы (теперь public для использования в AROverlayView)
+    // Вспомогательные классы (public для использования в AROverlayView)
     public static class Vector3 {
         public float x, y, z;
         public Vector3(float x, float y, float z) {

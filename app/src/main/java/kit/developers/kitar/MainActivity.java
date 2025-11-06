@@ -92,7 +92,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar progressBar;
 
     private ImageCapture imageCapture;
-    private androidx.camera.core.ImageAnalysis imageAnalysis; // Для реал-тайм анализа
+    private androidx.camera.core.ImageAnalysis imageAnalysis;
     private Camera camera;
     private CameraSelector cameraSelector;
     private int lensFacing = CameraSelector.LENS_FACING_BACK;
@@ -121,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setupClickListeners();
+        setupARScaleListener(); // Добавлено для поддержки масштабирования
     }
 
     private void initViews() {
@@ -141,10 +142,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void initModel3DRenderer() {
         try {
-            // Используем Simple3DRenderer вместо Model3DRenderer
             model3DRenderer = new Simple3DRenderer(this);
 
-            // Передаем геометрию в AR Overlay для реал-тайм рендеринга
             if (model3DRenderer.isModelLoaded()) {
                 arOverlayView.setModelGeometry(
                         model3DRenderer.getVertices(),
@@ -159,6 +158,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void setupARScaleListener() {
+        arOverlayView.setOnScaleChangeListener(new AROverlayView.OnScaleChangeListener() {
+            @Override
+            public void onScaleChanged(float scale) {
+                // Обновляем текст статуса с информацией о масштабе
+                runOnUiThread(() -> {
+                    statusText.setText(String.format("Масштаб: %.1fx - Нажмите для фото", scale));
+                });
+
+                // Передаем масштаб в рендерер для последующего использования
+                if (model3DRenderer != null) {
+                    model3DRenderer.setUserScale(scale);
+                }
+            }
+        });
+    }
+
     private void setupClickListeners() {
         btnCapture.setOnClickListener(v -> {
             if (!isProcessing) {
@@ -171,6 +187,13 @@ public class MainActivity extends AppCompatActivity {
                     ? CameraSelector.LENS_FACING_FRONT
                     : CameraSelector.LENS_FACING_BACK;
             startCamera();
+        });
+
+        // Долгое нажатие на кнопку камеры - сброс масштаба
+        btnCapture.setOnLongClickListener(v -> {
+            arOverlayView.resetScale();
+            Toast.makeText(this, "Масштаб сброшен", Toast.LENGTH_SHORT).show();
+            return true;
         });
     }
 
@@ -197,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
                 .setTargetRotation(getWindowManager().getDefaultDisplay().getRotation())
                 .build();
 
-        // ImageAnalysis для реал-тайм сканирования QR
         imageAnalysis = new androidx.camera.core.ImageAnalysis.Builder()
                 .setTargetResolution(new android.util.Size(1280, 720))
                 .setBackpressureStrategy(androidx.camera.core.ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -216,7 +238,7 @@ public class MainActivity extends AppCompatActivity {
                 cameraSelector,
                 preview,
                 imageCapture,
-                imageAnalysis // Добавляем анализатор
+                imageAnalysis
         );
 
         preview.setSurfaceProvider(previewView.getSurfaceProvider());
@@ -265,17 +287,15 @@ public class MainActivity extends AppCompatActivity {
 
         runOnUiThread(() -> showStatus("Поиск QR-кода..."));
 
-        // Улучшаем изображение для лучшего распознавания QR
         Bitmap enhancedBitmap = enhanceImageForQR(bitmap);
 
-        // Сканирование QR-кода
         InputImage image = InputImage.fromBitmap(enhancedBitmap, 0);
 
         barcodeScanner.process(image)
                 .addOnSuccessListener(barcodes -> {
                     imageProxy.close();
                     runOnUiThread(() -> showStatus("Сканирование завершено"));
-                    handleBarcodeResult(barcodes, bitmap); // Передаем оригинальное фото
+                    handleBarcodeResult(barcodes, bitmap);
                 })
                 .addOnFailureListener(e -> {
                     imageProxy.close();
@@ -287,12 +307,8 @@ public class MainActivity extends AppCompatActivity {
                 });
     }
 
-    /**
-     * Улучшает изображение для лучшего распознавания QR-кода
-     */
     private Bitmap enhanceImageForQR(Bitmap bitmap) {
         try {
-            // Увеличиваем контраст и яркость
             android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
             cm.set(new float[]{
                     1.5f, 0, 0, 0, -50,
@@ -330,7 +346,6 @@ public class MainActivity extends AppCompatActivity {
         Barcode barcode = barcodes.get(0);
         String qrUrl = barcode.getRawValue();
 
-        // Получаем координаты QR-кода на изображении
         android.graphics.Rect qrBounds = barcode.getBoundingBox();
 
         if (qrBounds == null) {
@@ -370,7 +385,10 @@ public class MainActivity extends AppCompatActivity {
 
         cameraExecutor.execute(() -> {
             try {
-                runOnUiThread(() -> showStatus("Рендеринг 3D модели на место QR..."));
+                // Получаем текущий масштаб от пользователя
+                float userScale = arOverlayView.getUserScale();
+
+                runOnUiThread(() -> showStatus(String.format("Рендеринг 3D с масштабом %.1fx...", userScale)));
 
                 // Рендерим 3D модель на место QR-кода
                 Bitmap resultBitmap = model3DRenderer.renderModelOnBitmap(photoBitmap, qrBounds);
@@ -419,7 +437,6 @@ public class MainActivity extends AppCompatActivity {
                 return null;
             }
 
-            // Поворачиваем изображение если нужно
             int rotation = imageProxy.getImageInfo().getRotationDegrees();
             if (rotation != 0) {
                 Matrix matrix = new Matrix();
@@ -556,7 +573,6 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Необходимы все разрешения для работы приложения.\n" +
                         "Пожалуйста, выдайте разрешения в настройках.", Toast.LENGTH_LONG).show();
 
-                // Даем пользователю возможность попробовать еще раз
                 new android.os.Handler().postDelayed(() -> {
                     if (!allPermissionsGranted()) {
                         requestPermissions();
@@ -566,24 +582,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
-// Замените внутренний класс QRAnalyzer в MainActivity на этот код:
-
-    /**
-     * Упрощенный анализатор - bitmap трансформация настолько быстрая,
-     * что можно обновлять чаще без лагов
-     */
     private class QRAnalyzer implements androidx.camera.core.ImageAnalysis.Analyzer {
 
         private long lastAnalyzedTimestamp = 0;
-        private static final long ANALYSIS_INTERVAL_MS = 100; // 10 раз/сек - можем позволить!
+        private static final long ANALYSIS_INTERVAL_MS = 100;
 
         @OptIn(markerClass = ExperimentalGetImage.class)
         @Override
         public void analyze(@NonNull ImageProxy imageProxy) {
             long currentTimestamp = System.currentTimeMillis();
 
-            // Пропускаем если слишком рано
             if (currentTimestamp - lastAnalyzedTimestamp < ANALYSIS_INTERVAL_MS) {
                 imageProxy.close();
                 return;
@@ -607,15 +615,13 @@ public class MainActivity extends AppCompatActivity {
                                 String qrUrl = barcode.getRawValue();
                                 android.graphics.Rect bounds = barcode.getBoundingBox();
 
-                                // Проверяем правильность QR
                                 if (qrUrl != null && qrUrl.trim().equals(TARGET_URL.trim()) && bounds != null) {
-                                    // Масштабируем координаты
                                     Rect scaledBounds = scaleQRBounds(bounds, imageProxy, arOverlayView);
 
-                                    // Просто обновляем - это теперь ОЧЕНЬ быстро!
                                     runOnUiThread(() -> {
                                         arOverlayView.updateQRPosition(scaledBounds);
-                                        statusText.setText("QR найден! Нажмите для фото");
+                                        float scale = arOverlayView.getUserScale();
+                                        statusText.setText(String.format("Масштаб: %.1fx - Нажмите для фото", scale));
                                     });
                                 } else {
                                     runOnUiThread(() -> {
@@ -641,9 +647,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        /**
-         * Масштабирует координаты QR с размера изображения на размер view
-         */
         private Rect scaleQRBounds(android.graphics.Rect imageBounds,
                                    ImageProxy imageProxy,
                                    View targetView) {
@@ -653,7 +656,6 @@ public class MainActivity extends AppCompatActivity {
             int viewWidth = targetView.getWidth();
             int viewHeight = targetView.getHeight();
 
-            // Учитываем поворот
             int rotation = imageProxy.getImageInfo().getRotationDegrees();
             if (rotation == 90 || rotation == 270) {
                 int temp = imageWidth;
@@ -661,11 +663,9 @@ public class MainActivity extends AppCompatActivity {
                 imageHeight = temp;
             }
 
-            // Вычисляем scale factor
             float scaleX = (float) viewWidth / imageWidth;
             float scaleY = (float) viewHeight / imageHeight;
 
-            // Масштабируем координаты
             int left = (int) (imageBounds.left * scaleX);
             int top = (int) (imageBounds.top * scaleY);
             int right = (int) (imageBounds.right * scaleX);
@@ -675,7 +675,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Добавьте этот метод в MainActivity для очистки ресурсов:
     @Override
     protected void onDestroy() {
         super.onDestroy();
