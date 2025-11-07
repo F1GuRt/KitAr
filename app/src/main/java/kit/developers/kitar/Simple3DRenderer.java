@@ -91,12 +91,9 @@ public class Simple3DRenderer {
         try {
             loadOBJModel();
             if (!isModelLoaded) {
-                android.widget.Toast.makeText(context, "OBJ не найден, используется куб",
+                android.widget.Toast.makeText(context, "Модель не найдена",
                         android.widget.Toast.LENGTH_SHORT).show();
                 createSimpleCube();
-            } else {
-                android.widget.Toast.makeText(context, "3D модель загружена успешно",
-                        android.widget.Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Log.e(TAG, "Ошибка в конструкторе", e);

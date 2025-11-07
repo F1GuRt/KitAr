@@ -16,7 +16,6 @@ import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
@@ -149,12 +148,11 @@ public class MainActivity extends AppCompatActivity {
                         model3DRenderer.getVertices(),
                         model3DRenderer.getFaces()
                 );
-                Toast.makeText(this, "AR режим активирован", Toast.LENGTH_SHORT).show();
+                showStatus("AR режим активирован");
             }
         } catch (Exception e) {
             Log.e(TAG, "Ошибка инициализации рендерера", e);
-            Toast.makeText(this, "Ошибка инициализации 3D: " + e.getMessage(),
-                    Toast.LENGTH_LONG).show();
+            showLongStatus("Ошибка инициализации 3D: " + e.getMessage());
         }
     }
 
@@ -192,7 +190,7 @@ public class MainActivity extends AppCompatActivity {
         // Долгое нажатие на кнопку камеры - сброс масштаба
         btnCapture.setOnLongClickListener(v -> {
             arOverlayView.resetScale();
-            Toast.makeText(this, "Масштаб сброшен", Toast.LENGTH_SHORT).show();
+            showStatus("Масштаб сброшен");
             return true;
         });
     }
@@ -360,7 +358,6 @@ public class MainActivity extends AppCompatActivity {
             String msg = "QR найден!\nПозиция: (" + qrBounds.left + "," + qrBounds.top +
                     ") Размер: " + qrBounds.width() + "x" + qrBounds.height();
             showStatus(msg);
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
         });
 
         Log.d(TAG, "=== QR КОД НАЙДЕН ===");
@@ -401,7 +398,6 @@ public class MainActivity extends AppCompatActivity {
                     if (saved) {
                         runOnUiThread(() -> {
                             showLongStatus("✓ Фото успешно сохранено в галерею!");
-                            Toast.makeText(this, "Готово! Проверьте галерею", Toast.LENGTH_LONG).show();
                         });
                     } else {
                         runOnUiThread(() -> showLongStatus("✗ Ошибка сохранения в галерею"));
@@ -519,13 +515,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void showStatus(String message) {
         statusText.setText(message);
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
         Log.d(TAG, message);
     }
 
     private void showLongStatus(String message) {
         statusText.setText(message);
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
         Log.d(TAG, message);
     }
 
@@ -568,10 +562,10 @@ public class MainActivity extends AppCompatActivity {
 
             if (allGranted && allPermissionsGranted()) {
                 startCamera();
-                Toast.makeText(this, "Разрешения получены", Toast.LENGTH_SHORT).show();
+                showStatus("Разрешения получены");
             } else {
-                Toast.makeText(this, "Необходимы все разрешения для работы приложения.\n" +
-                        "Пожалуйста, выдайте разрешения в настройках.", Toast.LENGTH_LONG).show();
+                showLongStatus("Необходимы все разрешения для работы приложения.\n" +
+                        "Пожалуйста, выдайте разрешения в настройках.");
 
                 new android.os.Handler().postDelayed(() -> {
                     if (!allPermissionsGranted()) {
