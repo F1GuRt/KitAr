@@ -46,6 +46,8 @@ dependencies {
     // ML Kit для QR сканирования
     implementation ("com.google.mlkit:barcode-scanning:17.2.0")
 
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta4")
+
 
     implementation(libs.appcompat)
     implementation(libs.material)

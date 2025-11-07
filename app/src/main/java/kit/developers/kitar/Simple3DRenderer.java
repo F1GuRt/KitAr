@@ -258,6 +258,84 @@ public class Simple3DRenderer {
         }
     }
 
+    public void render3DToCanvas(Canvas canvas, float centerX, float centerY, float scale) {
+        if (!isModelLoaded) {
+            Log.e(TAG, "Модель не загружена");
+            return;
+        }
+
+        try {
+            Log.d(TAG, "Рендеринг модели на canvas: X=" + centerX + ", Y=" + centerY + ", Scale=" + scale);
+
+            // Проецируем вершины
+            List<Vector2> projectedVertices = new ArrayList<>();
+            List<Float> zDepths = new ArrayList<>();
+
+            for (Vector3 v : vertices) {
+                Vector3 transformed = transformVertex(v);
+                Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
+                projectedVertices.add(projected);
+                zDepths.add(transformed.z);
+            }
+
+            // Сортируем грани по глубине
+            List<FaceDepth> sortedFaces = new ArrayList<>();
+            for (Face face : faces) {
+                float avgDepth = 0;
+                for (int idx : face.indices) {
+                    avgDepth += zDepths.get(idx);
+                }
+                avgDepth /= face.indices.length;
+                sortedFaces.add(new FaceDepth(face, avgDepth));
+            }
+
+            sortedFaces.sort((a, b) -> Float.compare(a.depth, b.depth));
+
+            Paint fillPaint = new Paint();
+            fillPaint.setStyle(Paint.Style.FILL);
+            fillPaint.setAntiAlias(true);
+            fillPaint.setShadowLayer(10, 5, 5, Color.argb(100, 0, 0, 0));
+
+            Paint strokePaint = new Paint();
+            strokePaint.setStyle(Paint.Style.STROKE);
+            strokePaint.setStrokeWidth(2);
+            strokePaint.setAntiAlias(true);
+
+            // Рисуем грани
+            for (FaceDepth fd : sortedFaces) {
+                Face face = fd.face;
+
+                Vector3 normal = calculateNormal(face);
+                float brightness = Math.max(0.3f, Math.abs(normal.z) * 0.7f + 0.3f);
+
+                int baseR = (int)(ModelConfig.COLOR_R * brightness);
+                int baseG = (int)(ModelConfig.COLOR_G * brightness);
+                int baseB = (int)(ModelConfig.COLOR_B * brightness);
+
+                fillPaint.setColor(Color.argb(ModelConfig.ALPHA, baseR, baseG, baseB));
+                strokePaint.setColor(Color.argb(255, baseR / 2, baseG / 2, baseB / 2));
+
+                Path path = new Path();
+                Vector2 first = projectedVertices.get(face.indices[0]);
+                path.moveTo(first.x, first.y);
+
+                for (int i = 1; i < face.indices.length; i++) {
+                    Vector2 point = projectedVertices.get(face.indices[i]);
+                    path.lineTo(point.x, point.y);
+                }
+                path.close();
+
+                canvas.drawPath(path, fillPaint);
+                canvas.drawPath(path, strokePaint);
+            }
+
+            Log.d(TAG, "Рендеринг на canvas завершен");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка рендеринга на canvas", e);
+        }
+    }
+
     public Bitmap renderModelOnBitmap(Bitmap backgroundBitmap) {
         android.graphics.Rect centerBounds = new android.graphics.Rect(
                 backgroundBitmap.getWidth() / 3,

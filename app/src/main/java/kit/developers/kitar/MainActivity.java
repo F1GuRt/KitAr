@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.View;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
@@ -57,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String[] REQUIRED_PERMISSIONS = getRequiredPermissions();
 
+    private SegmentationHelper segmentationHelper; // Добавьте эту переменную
+
     private static String[] getRequiredPermissions() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             // Android 13+
@@ -84,6 +87,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String TARGET_URL = "https://your-target-url.com";
 
     private PreviewView previewView;
+
+    private WatermarkHelper watermarkHelper; // ДОБАВЬТЕ эту переменную
     private AROverlayView arOverlayView;
     private FloatingActionButton btnCapture;
     private FloatingActionButton btnFlipCamera;
@@ -109,10 +114,11 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         initBarcodeScanner();
         initModel3DRenderer();
+        initSegmentation();
+        initWatermark(); // ДОБАВЬТЕ инициализацию
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
-        // Проверяем и запрашиваем разрешения
         if (allPermissionsGranted()) {
             startCamera();
         } else {
@@ -120,8 +126,35 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setupClickListeners();
-        setupARScaleListener(); // Добавлено для поддержки масштабирования
+        setupARScaleListener();
     }
+
+    // ДОБАВЬТЕ этот новый метод:
+    private void initWatermark() {
+        try {
+            watermarkHelper = new WatermarkHelper(this);
+
+            if (watermarkHelper.isWatermarkLoaded()) {
+                Log.d(TAG, "Водяной знак инициализирован успешно");
+                Toast.makeText(this, "Водяной знак готов", Toast.LENGTH_SHORT).show();
+            } else {
+                Log.w(TAG, "Водяной знак не загружен - файл не найден");
+                Toast.makeText(this, "Водяной знак не найден в assets", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка инициализации водяного знака", e);
+        }
+    }
+    private void initSegmentation() {
+        try {
+            segmentationHelper = new SegmentationHelper();
+            Log.d(TAG, "Сегментация инициализирована");
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка инициализации сегментации", e);
+            Toast.makeText(this, "Сегментация недоступна", Toast.LENGTH_SHORT).show();
+        }
+    }
+
 
     private void initViews() {
         previewView = findViewById(R.id.previewView);
@@ -382,13 +415,48 @@ public class MainActivity extends AppCompatActivity {
 
         cameraExecutor.execute(() -> {
             try {
-                // Получаем текущий масштаб от пользователя
                 float userScale = arOverlayView.getUserScale();
 
-                runOnUiThread(() -> showStatus(String.format("Рендеринг 3D с масштабом %.1fx...", userScale)));
+                runOnUiThread(() -> showStatus("Рендеринг 3D модели..."));
 
-                // Рендерим 3D модель на место QR-кода
-                Bitmap resultBitmap = model3DRenderer.renderModelOnBitmap(photoBitmap, qrBounds);
+                // 1. Создаем прозрачный bitmap с 3D моделью
+                Bitmap transparentModelBitmap = createTransparentModelBitmap(photoBitmap, qrBounds);
+
+                if (transparentModelBitmap == null) {
+                    runOnUiThread(() -> showLongStatus("✗ Ошибка создания 3D модели"));
+                    runOnUiThread(this::resetProcessing);
+                    return;
+                }
+
+                runOnUiThread(() -> showStatus("Применение сегментации..."));
+
+                // 2. Применяем сегментацию - модель будет ЗА человеком
+                Bitmap resultBitmap;
+                if (segmentationHelper != null) {
+                    resultBitmap = segmentationHelper.applyModelBehindPerson(
+                            photoBitmap,
+                            transparentModelBitmap
+                    );
+                } else {
+                    Log.w(TAG, "Сегментация недоступна, используется обычное наложение");
+                    resultBitmap = model3DRenderer.renderModelOnBitmap(photoBitmap, qrBounds);
+                }
+
+                // Освобождаем временный bitmap
+                transparentModelBitmap.recycle();
+
+                // 3. НОВОЕ: Накладываем водяной знак
+                if (resultBitmap != null && watermarkHelper != null && watermarkHelper.isWatermarkLoaded()) {
+                    runOnUiThread(() -> showStatus("Добавление водяного знака..."));
+
+                    Bitmap withWatermark = watermarkHelper.applyWatermark(resultBitmap);
+
+                    // Если водяной знак успешно наложен, освобождаем старый bitmap
+                    if (withWatermark != resultBitmap) {
+                        resultBitmap.recycle();
+                        resultBitmap = withWatermark;
+                    }
+                }
 
                 if (resultBitmap != null) {
                     runOnUiThread(() -> showStatus("Сохранение в галерею..."));
@@ -397,13 +465,14 @@ public class MainActivity extends AppCompatActivity {
 
                     if (saved) {
                         runOnUiThread(() -> {
-                            showLongStatus("✓ Фото успешно сохранено в галерею!");
+                            showLongStatus("✓ Фото сохранено с водяным знаком!");
+                            Toast.makeText(this, "Готово! Проверьте галерею", Toast.LENGTH_LONG).show();
                         });
                     } else {
                         runOnUiThread(() -> showLongStatus("✗ Ошибка сохранения в галерею"));
                     }
                 } else {
-                    runOnUiThread(() -> showLongStatus("✗ Ошибка рендеринга 3D модели"));
+                    runOnUiThread(() -> showLongStatus("✗ Ошибка обработки изображения"));
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Ошибка рендеринга 3D", e);
@@ -414,6 +483,43 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+
+    private Bitmap createTransparentModelBitmap(Bitmap photoBitmap, android.graphics.Rect qrBounds) {
+        try {
+            int width = photoBitmap.getWidth();
+            int height = photoBitmap.getHeight();
+
+            // Создаем прозрачный bitmap
+            Bitmap transparentBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(transparentBitmap);
+
+            // Canvas уже прозрачный, рисуем только модель
+            float qrCenterX = qrBounds.centerX();
+            float qrCenterY = qrBounds.centerY();
+            float qrSize = Math.max(qrBounds.width(), qrBounds.height());
+
+            // Получаем масштаб
+            float userScale = arOverlayView.getUserScale();
+            float scale = qrSize * ModelConfig.SCALE * userScale * 0.8f;
+
+            float centerX = qrCenterX + (ModelConfig.OFFSET_X * qrSize);
+            float centerY = qrCenterY + (ModelConfig.OFFSET_Y * qrSize);
+
+            // Рендерим модель на прозрачный canvas
+            model3DRenderer.render3DToCanvas(
+                    canvas,
+                    centerX,
+                    centerY,
+                    scale
+            );
+
+            return transparentBitmap;
+
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка создания прозрачного bitmap", e);
+            return null;
+        }
+    }
     private Bitmap imageProxyToBitmap(ImageProxy imageProxy) {
         try {
             ImageProxy.PlaneProxy[] planes = imageProxy.getPlanes();
@@ -678,6 +784,12 @@ public class MainActivity extends AppCompatActivity {
         }
         if (arOverlayView != null) {
             arOverlayView.cleanup();
+        }
+        if (segmentationHelper != null) {
+            segmentationHelper.cleanup();
+        }
+        if (watermarkHelper != null) {
+            watermarkHelper.cleanup(); // ДОБАВЬТЕ очистку
         }
     }
 }
