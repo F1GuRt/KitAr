@@ -220,6 +220,96 @@ public class Simple3DRenderer {
         isModelLoaded = true;
     }
 
+    public boolean loadModel(String modelPath) {
+        if (modelPath == null) {
+            // Используем встроенный куб
+            createSimpleCube();
+            return true;
+        }
+
+        try {
+            Log.d(TAG, "Загрузка модели: " + modelPath);
+
+            InputStream inputStream = context.getAssets().open(modelPath);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+
+            vertices = new ArrayList<>();
+            faces = new ArrayList<>();
+            List<int[]> faceIndices = new ArrayList<>();
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+
+                if (line.startsWith("v ")) {
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 4) {
+                        float x = Float.parseFloat(parts[1]);
+                        float y = Float.parseFloat(parts[2]);
+                        float z = Float.parseFloat(parts[3]);
+                        vertices.add(new Vector3(x, y, z));
+                    }
+                } else if (line.startsWith("f ")) {
+                    String[] parts = line.split("\\s+");
+                    int[] indices = new int[parts.length - 1];
+
+                    for (int i = 1; i < parts.length; i++) {
+                        String indexStr = parts[i].split("/")[0];
+                        indices[i - 1] = Integer.parseInt(indexStr) - 1;
+                    }
+
+                    faceIndices.add(indices);
+                }
+            }
+
+            reader.close();
+
+            for (int[] indices : faceIndices) {
+                faces.add(new Face(indices));
+            }
+
+            if (!vertices.isEmpty() && !faces.isEmpty()) {
+                normalizeModel();
+                isModelLoaded = true;
+                Log.d(TAG, "Модель загружена: " + vertices.size() + " вершин, " + faces.size() + " граней");
+                return true;
+            } else {
+                Log.w(TAG, "Модель пуста");
+                return false;
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка загрузки модели: " + modelPath, e);
+            return false;
+        }
+    }
+
+    /**
+     * Перезагружает модель (используется при смене модели пользователем)
+     */
+    public void reloadModel(String modelPath) {
+        // Очищаем старые данные
+        if (vertices != null) {
+            vertices.clear();
+        }
+        if (faces != null) {
+            faces.clear();
+        }
+
+        isModelLoaded = false;
+
+        // Загружаем новую модель
+        if (loadModel(modelPath)) {
+            android.widget.Toast.makeText(context, "Модель загружена успешно",
+                    android.widget.Toast.LENGTH_SHORT).show();
+        } else {
+            android.widget.Toast.makeText(context, "Ошибка загрузки модели",
+                    android.widget.Toast.LENGTH_SHORT).show();
+            // Fallback на куб
+            createSimpleCube();
+        }
+    }
+
     /**
      * Рендерит 3D модель на место QR-кода
      */

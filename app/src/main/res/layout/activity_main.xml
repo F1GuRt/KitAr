@@ -25,6 +25,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Статус текст -->
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
@@ -40,6 +41,37 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- НОВОЕ: Кнопка выбора модели -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/btnSelectModel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:src="@android:drawable/ic_menu_sort_by_size"
+        app:tint="#FFFFFF"
+        app:backgroundTint="#9C27B0"
+        app:fabSize="normal"
+        android:layout_marginTop="100dp"
+        android:layout_marginEnd="16dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:contentDescription="Выбрать модель" />
+
+    <!-- НОВОЕ: Текст с названием текущей модели -->
+    <TextView
+        android:id="@+id/currentModelText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Модель: Загрузка..."
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:background="#80000000"
+        android:padding="6dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="16dp"
+        app:layout_constraintTop_toBottomOf="@id/btnSelectModel"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Контейнер с кнопками внизу -->
     <LinearLayout
         android:id="@+id/buttonContainer"
         android:layout_width="wrap_content"
@@ -58,7 +90,8 @@
             android:src="@android:drawable/ic_menu_camera"
             app:tint="#FFFFFF"
             app:backgroundTint="#2196F3"
-            app:fabSize="normal" />
+            app:fabSize="normal"
+            android:contentDescription="Сделать фото" />
 
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/btnFlipCamera"
@@ -68,10 +101,12 @@
             android:src="@android:drawable/ic_menu_rotate"
             app:tint="#FFFFFF"
             app:backgroundTint="#4CAF50"
-            app:fabSize="normal" />
+            app:fabSize="normal"
+            android:contentDescription="Переключить камеру" />
 
     </LinearLayout>
 
+    <!-- ProgressBar -->
     <ProgressBar
         android:id="@+id/progressBar"
         android:layout_width="wrap_content"

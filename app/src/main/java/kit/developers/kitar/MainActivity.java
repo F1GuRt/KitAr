@@ -58,6 +58,11 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String[] REQUIRED_PERMISSIONS = getRequiredPermissions();
 
+    private ModelManager modelManager; // ДОБАВЬТЕ
+
+    private FloatingActionButton btnSelectModel; // ДОБАВЬТЕ
+    private TextView currentModelText; // ДОБАВЬТЕ
+
     private SegmentationHelper segmentationHelper; // Добавьте эту переменную
 
     private static String[] getRequiredPermissions() {
@@ -113,9 +118,10 @@ public class MainActivity extends AppCompatActivity {
 
         initViews();
         initBarcodeScanner();
+        initModelManager(); // ДОБАВЬТЕ - вызываем ДО initModel3DRenderer
         initModel3DRenderer();
         initSegmentation();
-        initWatermark(); // ДОБАВЬТЕ инициализацию
+        initWatermark();
 
         cameraExecutor = Executors.newSingleThreadExecutor();
 
@@ -127,6 +133,25 @@ public class MainActivity extends AppCompatActivity {
 
         setupClickListeners();
         setupARScaleListener();
+    }
+
+    private void initModelManager() {
+        try {
+            modelManager = new ModelManager(this);
+
+            int modelsCount = modelManager.getModelsCount();
+            Log.d(TAG, "Найдено моделей: " + modelsCount);
+
+            if (modelsCount > 0) {
+                ModelManager.Model3DInfo currentModel = modelManager.getCurrentModel();
+                updateCurrentModelText(currentModel.getName());
+                Toast.makeText(this, "Доступно моделей: " + modelsCount,
+                        Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка инициализации ModelManager", e);
+            Toast.makeText(this, "Ошибка загрузки моделей", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // ДОБАВЬТЕ этот новый метод:
@@ -161,6 +186,8 @@ public class MainActivity extends AppCompatActivity {
         arOverlayView = findViewById(R.id.arOverlay);
         btnCapture = findViewById(R.id.btnCapture);
         btnFlipCamera = findViewById(R.id.btnFlipCamera);
+        btnSelectModel = findViewById(R.id.btnSelectModel); // ДОБАВЬТЕ
+        currentModelText = findViewById(R.id.currentModelText); // ДОБАВЬТЕ
         statusText = findViewById(R.id.statusText);
         progressBar = findViewById(R.id.progressBar);
     }
@@ -176,16 +203,26 @@ public class MainActivity extends AppCompatActivity {
         try {
             model3DRenderer = new Simple3DRenderer(this);
 
-            if (model3DRenderer.isModelLoaded()) {
-                arOverlayView.setModelGeometry(
-                        model3DRenderer.getVertices(),
-                        model3DRenderer.getFaces()
-                );
-                showStatus("AR режим активирован");
+            // Загружаем текущую выбранную модель
+            if (modelManager != null) {
+                ModelManager.Model3DInfo currentModel = modelManager.getCurrentModel();
+
+                if (model3DRenderer.loadModel(currentModel.getPath())) {
+                    arOverlayView.setModelGeometry(
+                            model3DRenderer.getVertices(),
+                            model3DRenderer.getFaces()
+                    );
+                    Toast.makeText(this, "AR режим: " + currentModel.getName(),
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "Ошибка загрузки модели",
+                            Toast.LENGTH_LONG).show();
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "Ошибка инициализации рендерера", e);
-            showLongStatus("Ошибка инициализации 3D: " + e.getMessage());
+            Toast.makeText(this, "Ошибка инициализации 3D: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
         }
     }
 
@@ -223,9 +260,74 @@ public class MainActivity extends AppCompatActivity {
         // Долгое нажатие на кнопку камеры - сброс масштаба
         btnCapture.setOnLongClickListener(v -> {
             arOverlayView.resetScale();
-            showStatus("Масштаб сброшен");
+            Toast.makeText(this, "Масштаб сброшен", Toast.LENGTH_SHORT).show();
             return true;
         });
+
+        // ДОБАВЬТЕ обработчик кнопки выбора модели:
+        btnSelectModel.setOnClickListener(v -> showModelSelectionDialog());
+    }
+
+    private void showModelSelectionDialog() {
+        if (modelManager == null) {
+            Toast.makeText(this, "ModelManager не инициализирован", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String[] modelNames = modelManager.getModelNames();
+        int currentIndex = modelManager.getCurrentModelIndex();
+
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Выберите 3D модель")
+                .setSingleChoiceItems(modelNames, currentIndex, (dialog, which) -> {
+                    // Пользователь выбрал модель
+                    modelManager.setCurrentModel(which);
+                    ModelManager.Model3DInfo selectedModel = modelManager.getCurrentModel();
+
+                    // Показываем прогресс
+                    progressBar.setVisibility(View.VISIBLE);
+                    showStatus("Загрузка модели...");
+
+                    // Загружаем модель в фоновом потоке
+                    cameraExecutor.execute(() -> {
+                        boolean success = model3DRenderer.loadModel(selectedModel.getPath());
+
+                        runOnUiThread(() -> {
+                            progressBar.setVisibility(View.GONE);
+
+                            if (success) {
+                                // Обновляем AR overlay с новой геометрией
+                                arOverlayView.setModelGeometry(
+                                        model3DRenderer.getVertices(),
+                                        model3DRenderer.getFaces()
+                                );
+
+                                updateCurrentModelText(selectedModel.getName());
+                                showStatus("Модель загружена: " + selectedModel.getName());
+                                Toast.makeText(this, "✓ " + selectedModel.getName(),
+                                        Toast.LENGTH_SHORT).show();
+                            } else {
+                                showLongStatus("✗ Ошибка загрузки модели");
+                                Toast.makeText(this, "Ошибка загрузки модели",
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    });
+
+                    dialog.dismiss();
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    private void updateCurrentModelText(String modelName) {
+        if (currentModelText != null) {
+            String displayName = modelName;
+            if (displayName.length() > 20) {
+                displayName = displayName.substring(0, 17) + "...";
+            }
+            currentModelText.setText("Модель: " + displayName);
+        }
     }
 
     private void startCamera() {
