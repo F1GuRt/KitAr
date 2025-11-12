@@ -58,28 +58,24 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String[] REQUIRED_PERMISSIONS = getRequiredPermissions();
 
-    private ModelManager modelManager; // ДОБАВЬТЕ
-
-    private FloatingActionButton btnSelectModel; // ДОБАВЬТЕ
-    private TextView currentModelText; // ДОБАВЬТЕ
-
-    private SegmentationHelper segmentationHelper; // Добавьте эту переменную
+    private ModelManager modelManager;
+    private FloatingActionButton btnSelectModel;
+    private TextView currentModelText;
+    private SegmentationHelper segmentationHelper;
+    private WatermarkHelper watermarkHelper;
 
     private static String[] getRequiredPermissions() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            // Android 13+
             return new String[]{
                     Manifest.permission.CAMERA,
                     Manifest.permission.READ_MEDIA_IMAGES
             };
         } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            // Android 10-12
             return new String[]{
                     Manifest.permission.CAMERA,
                     Manifest.permission.READ_EXTERNAL_STORAGE
             };
         } else {
-            // Android 9 и ниже
             return new String[]{
                     Manifest.permission.CAMERA,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE,
@@ -88,12 +84,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Целевая ссылка для сравнения
     private static final String TARGET_URL = "https://your-target-url.com";
 
     private PreviewView previewView;
-
-    private WatermarkHelper watermarkHelper; // ДОБАВЬТЕ эту переменную
     private AROverlayView arOverlayView;
     private FloatingActionButton btnCapture;
     private FloatingActionButton btnFlipCamera;
@@ -118,7 +111,7 @@ public class MainActivity extends AppCompatActivity {
 
         initViews();
         initBarcodeScanner();
-        initModelManager(); // ДОБАВЬТЕ - вызываем ДО initModel3DRenderer
+        initModelManager();
         initModel3DRenderer();
         initSegmentation();
         initWatermark();
@@ -154,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // ДОБАВЬТЕ этот новый метод:
     private void initWatermark() {
         try {
             watermarkHelper = new WatermarkHelper(this);
@@ -164,12 +156,12 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Водяной знак готов", Toast.LENGTH_SHORT).show();
             } else {
                 Log.w(TAG, "Водяной знак не загружен - файл не найден");
-                Toast.makeText(this, "Водяной знак не найден в assets", Toast.LENGTH_SHORT).show();
             }
         } catch (Exception e) {
             Log.e(TAG, "Ошибка инициализации водяного знака", e);
         }
     }
+
     private void initSegmentation() {
         try {
             segmentationHelper = new SegmentationHelper();
@@ -180,14 +172,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-
     private void initViews() {
         previewView = findViewById(R.id.previewView);
         arOverlayView = findViewById(R.id.arOverlay);
         btnCapture = findViewById(R.id.btnCapture);
         btnFlipCamera = findViewById(R.id.btnFlipCamera);
-        btnSelectModel = findViewById(R.id.btnSelectModel); // ДОБАВЬТЕ
-        currentModelText = findViewById(R.id.currentModelText); // ДОБАВЬТЕ
+        btnSelectModel = findViewById(R.id.btnSelectModel);
+        currentModelText = findViewById(R.id.currentModelText);
         statusText = findViewById(R.id.statusText);
         progressBar = findViewById(R.id.progressBar);
     }
@@ -203,7 +194,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             model3DRenderer = new Simple3DRenderer(this);
 
-            // Загружаем текущую выбранную модель
             if (modelManager != null) {
                 ModelManager.Model3DInfo currentModel = modelManager.getCurrentModel();
 
@@ -212,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
                             model3DRenderer.getVertices(),
                             model3DRenderer.getFaces()
                     );
-                    Toast.makeText(this, "AR режим: " + currentModel.getName(),
+                    Toast.makeText(this, "AR режим с MTL: " + currentModel.getName(),
                             Toast.LENGTH_SHORT).show();
                 } else {
                     Toast.makeText(this, "Ошибка загрузки модели",
@@ -230,12 +220,10 @@ public class MainActivity extends AppCompatActivity {
         arOverlayView.setOnScaleChangeListener(new AROverlayView.OnScaleChangeListener() {
             @Override
             public void onScaleChanged(float scale) {
-                // Обновляем текст статуса с информацией о масштабе
                 runOnUiThread(() -> {
                     statusText.setText(String.format("Масштаб: %.1fx - Нажмите для фото", scale));
                 });
 
-                // Передаем масштаб в рендерер для последующего использования
                 if (model3DRenderer != null) {
                     model3DRenderer.setUserScale(scale);
                 }
@@ -257,14 +245,12 @@ public class MainActivity extends AppCompatActivity {
             startCamera();
         });
 
-        // Долгое нажатие на кнопку камеры - сброс масштаба
         btnCapture.setOnLongClickListener(v -> {
             arOverlayView.resetScale();
             Toast.makeText(this, "Масштаб сброшен", Toast.LENGTH_SHORT).show();
             return true;
         });
 
-        // ДОБАВЬТЕ обработчик кнопки выбора модели:
         btnSelectModel.setOnClickListener(v -> showModelSelectionDialog());
     }
 
@@ -280,15 +266,12 @@ public class MainActivity extends AppCompatActivity {
         new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("Выберите 3D модель")
                 .setSingleChoiceItems(modelNames, currentIndex, (dialog, which) -> {
-                    // Пользователь выбрал модель
                     modelManager.setCurrentModel(which);
                     ModelManager.Model3DInfo selectedModel = modelManager.getCurrentModel();
 
-                    // Показываем прогресс
                     progressBar.setVisibility(View.VISIBLE);
-                    showStatus("Загрузка модели...");
+                    showStatus("Загрузка модели с MTL...");
 
-                    // Загружаем модель в фоновом потоке
                     cameraExecutor.execute(() -> {
                         boolean success = model3DRenderer.loadModel(selectedModel.getPath());
 
@@ -296,7 +279,6 @@ public class MainActivity extends AppCompatActivity {
                             progressBar.setVisibility(View.GONE);
 
                             if (success) {
-                                // Обновляем AR overlay с новой геометрией
                                 arOverlayView.setModelGeometry(
                                         model3DRenderer.getVertices(),
                                         model3DRenderer.getFaces()
@@ -304,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
 
                                 updateCurrentModelText(selectedModel.getName());
                                 showStatus("Модель загружена: " + selectedModel.getName());
-                                Toast.makeText(this, "✓ " + selectedModel.getName(),
+                                Toast.makeText(this, "✓ " + selectedModel.getName() + " (MTL)",
                                         Toast.LENGTH_SHORT).show();
                             } else {
                                 showLongStatus("✗ Ошибка загрузки модели");
@@ -421,7 +403,6 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> showStatus("Поиск QR-кода..."));
 
         Bitmap enhancedBitmap = enhanceImageForQR(bitmap);
-
         InputImage image = InputImage.fromBitmap(enhancedBitmap, 0);
 
         barcodeScanner.process(image)
@@ -470,7 +451,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (barcodes.isEmpty()) {
             runOnUiThread(() -> {
-                showLongStatus("QR-код не обнаружен. Убедитесь что он в кадре и хорошо виден");
+                showLongStatus("QR-код не обнаружен");
                 resetProcessing();
             });
             return;
@@ -478,7 +459,6 @@ public class MainActivity extends AppCompatActivity {
 
         Barcode barcode = barcodes.get(0);
         String qrUrl = barcode.getRawValue();
-
         android.graphics.Rect qrBounds = barcode.getBoundingBox();
 
         if (qrBounds == null) {
@@ -489,39 +469,30 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        runOnUiThread(() -> {
-            String msg = "QR найден!\nПозиция: (" + qrBounds.left + "," + qrBounds.top +
-                    ") Размер: " + qrBounds.width() + "x" + qrBounds.height();
-            showStatus(msg);
-        });
-
         Log.d(TAG, "=== QR КОД НАЙДЕН ===");
         Log.d(TAG, "URL: " + qrUrl);
-        Log.d(TAG, "Координаты: " + qrBounds.toString());
-        Log.d(TAG, "Размер фото: " + bitmap.getWidth() + "x" + bitmap.getHeight());
-        Log.d(TAG, "Ожидаемый URL: " + TARGET_URL);
 
         if (qrUrl != null && qrUrl.trim().equals(TARGET_URL.trim())) {
-            runOnUiThread(() -> showLongStatus("✓ QR подтвержден! Рендеринг на позицию QR..."));
+            runOnUiThread(() -> showLongStatus("✓ QR подтвержден! Рендеринг с MTL..."));
             render3DModelAndSave(bitmap, qrBounds);
         } else {
             runOnUiThread(() -> {
-                showLongStatus("✗ Неверный QR-код. Попробуйте другой");
+                showLongStatus("✗ Неверный QR-код");
                 resetProcessing();
             });
         }
     }
 
     private void render3DModelAndSave(Bitmap photoBitmap, android.graphics.Rect qrBounds) {
-        runOnUiThread(() -> showStatus("Запуск рендеринга..."));
+        runOnUiThread(() -> showStatus("Запуск рендеринга с MTL..."));
 
         cameraExecutor.execute(() -> {
             try {
                 float userScale = arOverlayView.getUserScale();
 
-                runOnUiThread(() -> showStatus("Рендеринг 3D модели..."));
+                runOnUiThread(() -> showStatus("Рендеринг 3D модели с цветами..."));
 
-                // 1. Создаем прозрачный bitmap с 3D моделью
+                // Создаем прозрачный bitmap с 3D моделью (с MTL цветами)
                 Bitmap transparentModelBitmap = createTransparentModelBitmap(photoBitmap, qrBounds);
 
                 if (transparentModelBitmap == null) {
@@ -532,7 +503,7 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> showStatus("Применение сегментации..."));
 
-                // 2. Применяем сегментацию - модель будет ЗА человеком
+                // Применяем сегментацию
                 Bitmap resultBitmap;
                 if (segmentationHelper != null) {
                     resultBitmap = segmentationHelper.applyModelBehindPerson(
@@ -544,16 +515,14 @@ public class MainActivity extends AppCompatActivity {
                     resultBitmap = model3DRenderer.renderModelOnBitmap(photoBitmap, qrBounds);
                 }
 
-                // Освобождаем временный bitmap
                 transparentModelBitmap.recycle();
 
-                // 3. НОВОЕ: Накладываем водяной знак
+                // Накладываем водяной знак
                 if (resultBitmap != null && watermarkHelper != null && watermarkHelper.isWatermarkLoaded()) {
                     runOnUiThread(() -> showStatus("Добавление водяного знака..."));
 
                     Bitmap withWatermark = watermarkHelper.applyWatermark(resultBitmap);
 
-                    // Если водяной знак успешно наложен, освобождаем старый bitmap
                     if (withWatermark != resultBitmap) {
                         resultBitmap.recycle();
                         resultBitmap = withWatermark;
@@ -567,14 +536,14 @@ public class MainActivity extends AppCompatActivity {
 
                     if (saved) {
                         runOnUiThread(() -> {
-                            showLongStatus("✓ Фото сохранено с водяным знаком!");
+                            showLongStatus("✓ Фото сохранено с цветами MTL!");
                             Toast.makeText(this, "Готово! Проверьте галерею", Toast.LENGTH_LONG).show();
                         });
                     } else {
-                        runOnUiThread(() -> showLongStatus("✗ Ошибка сохранения в галерею"));
+                        runOnUiThread(() -> showLongStatus("✗ Ошибка сохранения"));
                     }
                 } else {
-                    runOnUiThread(() -> showLongStatus("✗ Ошибка обработки изображения"));
+                    runOnUiThread(() -> showLongStatus("✗ Ошибка обработки"));
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Ошибка рендеринга 3D", e);
@@ -585,29 +554,25 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-
     private Bitmap createTransparentModelBitmap(Bitmap photoBitmap, android.graphics.Rect qrBounds) {
         try {
             int width = photoBitmap.getWidth();
             int height = photoBitmap.getHeight();
 
-            // Создаем прозрачный bitmap
             Bitmap transparentBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(transparentBitmap);
 
-            // Canvas уже прозрачный, рисуем только модель
             float qrCenterX = qrBounds.centerX();
             float qrCenterY = qrBounds.centerY();
             float qrSize = Math.max(qrBounds.width(), qrBounds.height());
 
-            // Получаем масштаб
             float userScale = arOverlayView.getUserScale();
             float scale = qrSize * ModelConfig.SCALE * userScale * 0.8f;
 
             float centerX = qrCenterX + (ModelConfig.OFFSET_X * qrSize);
             float centerY = qrCenterY + (ModelConfig.OFFSET_Y * qrSize);
 
-            // Рендерим модель на прозрачный canvas
+            // Рендерим модель с MTL цветами на прозрачный canvas
             model3DRenderer.render3DToCanvas(
                     canvas,
                     centerX,
@@ -622,6 +587,7 @@ public class MainActivity extends AppCompatActivity {
             return null;
         }
     }
+
     private Bitmap imageProxyToBitmap(ImageProxy imageProxy) {
         try {
             ImageProxy.PlaneProxy[] planes = imageProxy.getPlanes();
@@ -648,9 +614,6 @@ public class MainActivity extends AppCompatActivity {
                 bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(),
                         bitmap.getHeight(), matrix, true);
             }
-
-            Bitmap finalBitmap = bitmap;
-            runOnUiThread(() -> showStatus("Изображение: " + finalBitmap.getWidth() + "x" + finalBitmap.getHeight()));
 
             return bitmap;
 
@@ -691,7 +654,6 @@ public class MainActivity extends AppCompatActivity {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos);
                 fos.close();
 
-                runOnUiThread(() -> showStatus("Сохранено: " + filename));
                 return true;
 
             } else {
@@ -711,7 +673,6 @@ public class MainActivity extends AppCompatActivity {
                 values.put(MediaStore.Images.Media.DATA, image.getAbsolutePath());
                 getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
 
-                runOnUiThread(() -> showStatus("Сохранено: " + filename));
                 return true;
             }
         } catch (Exception e) {
@@ -747,7 +708,6 @@ public class MainActivity extends AppCompatActivity {
         for (String permission : permissions) {
             if (ContextCompat.checkSelfPermission(this, permission)
                     != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "Разрешение не выдано: " + permission);
                 return false;
             }
         }
@@ -760,21 +720,11 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            boolean allGranted = true;
-            for (int i = 0; i < grantResults.length; i++) {
-                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "Разрешение отклонено: " + permissions[i]);
-                    allGranted = false;
-                }
-            }
-
-            if (allGranted && allPermissionsGranted()) {
+            if (allPermissionsGranted()) {
                 startCamera();
                 showStatus("Разрешения получены");
             } else {
-                showLongStatus("Необходимы все разрешения для работы приложения.\n" +
-                        "Пожалуйста, выдайте разрешения в настройках.");
-
+                showLongStatus("Необходимы все разрешения");
                 new android.os.Handler().postDelayed(() -> {
                     if (!allPermissionsGranted()) {
                         requestPermissions();
@@ -891,7 +841,7 @@ public class MainActivity extends AppCompatActivity {
             segmentationHelper.cleanup();
         }
         if (watermarkHelper != null) {
-            watermarkHelper.cleanup(); // ДОБАВЬТЕ очистку
+            watermarkHelper.cleanup();
         }
     }
 }

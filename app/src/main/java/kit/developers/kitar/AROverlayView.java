@@ -16,14 +16,15 @@ import android.view.ScaleGestureDetector;
 import android.view.View;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Оптимизированный View с кэшированием отрисованной модели в Bitmap
- * + поддержка масштабирования жестами
+ * Оптимизированный View с кэшированием и поддержкой текстур
  */
 public class AROverlayView extends View {
 
@@ -33,8 +34,12 @@ public class AROverlayView extends View {
     private Rect qrBounds;
     private List<Simple3DRenderer.Vector3> vertices;
     private List<Simple3DRenderer.Face> faces;
+    private Map<String, MaterialInfo> materials;
+    private Map<String, Bitmap> textures; // Кэш текстур
     private boolean isModelLoaded = false;
     private boolean showQR = false;
+    private boolean useMaterialColors = false;
+    private boolean useTextures = false;
 
     private Paint qrPaint;
     private Paint bitmapPaint;
@@ -44,7 +49,6 @@ public class AROverlayView extends View {
     private Matrix transformMatrix;
     private RectF lastQrBoundsF;
 
-    // Базовый размер для кэша (квадрат)
     private static final int CACHE_SIZE = 8000;
 
     // Трансформации модели
@@ -56,7 +60,7 @@ public class AROverlayView extends View {
     private float offsetY = ModelConfig.OFFSET_Y;
     private float offsetZ = ModelConfig.OFFSET_Z;
 
-    // Пользовательский масштаб (через жесты)
+    // Пользовательский масштаб
     private float userScale = 1.0f;
     private static final float MIN_SCALE = 0.2f;
     private static final float MAX_SCALE = 5.0f;
@@ -76,10 +80,9 @@ public class AROverlayView extends View {
     private float smoothCenterX, smoothCenterY, smoothScale;
     private static final float SMOOTH_FACTOR = 0.95f;
 
-    // Детектор жестов масштабирования
+    // Детектор жестов
     private ScaleGestureDetector scaleGestureDetector;
 
-    // Listener для оповещения об изменении масштаба
     public interface OnScaleChangeListener {
         void onScaleChanged(float scale);
     }
@@ -107,10 +110,10 @@ public class AROverlayView extends View {
 
         transformMatrix = new Matrix();
         lastQrBoundsF = new RectF();
+        materials = new HashMap<>();
+        textures = new HashMap<>();
 
         renderExecutor = Executors.newSingleThreadExecutor();
-
-        // Инициализируем детектор жестов
         scaleGestureDetector = new ScaleGestureDetector(getContext(), new ScaleListener());
 
         precomputeTransforms();
@@ -137,27 +140,18 @@ public class AROverlayView extends View {
         return handled || super.onTouchEvent(event);
     }
 
-    /**
-     * Слушатель жестов масштабирования
-     */
     private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
             float scaleFactor = detector.getScaleFactor();
-
-            // Применяем новый масштаб с ограничениями
             userScale *= scaleFactor;
             userScale = Math.max(MIN_SCALE, Math.min(userScale, MAX_SCALE));
 
-            // Оповещаем listener об изменении
             if (scaleChangeListener != null) {
                 scaleChangeListener.onScaleChanged(userScale);
             }
 
-            // Обновляем отрисовку
             invalidate();
-
-            Log.d(TAG, "Масштаб изменен: " + userScale);
             return true;
         }
     }
@@ -166,24 +160,15 @@ public class AROverlayView extends View {
         this.scaleChangeListener = listener;
     }
 
-    /**
-     * Получить текущий пользовательский масштаб
-     */
     public float getUserScale() {
         return userScale;
     }
 
-    /**
-     * Установить пользовательский масштаб программно
-     */
     public void setUserScale(float scale) {
         this.userScale = Math.max(MIN_SCALE, Math.min(scale, MAX_SCALE));
         invalidate();
     }
 
-    /**
-     * Сбросить масштаб к исходному
-     */
     public void resetScale() {
         this.userScale = 1.0f;
         if (scaleChangeListener != null) {
@@ -192,6 +177,9 @@ public class AROverlayView extends View {
         invalidate();
     }
 
+    /**
+     * Установка геометрии модели с текстурами
+     */
     public void setModelGeometry(List<Simple3DRenderer.Vector3> vertices,
                                  List<Simple3DRenderer.Face> faces) {
         this.vertices = vertices;
@@ -199,23 +187,55 @@ public class AROverlayView extends View {
         this.isModelLoaded = (vertices != null && !vertices.isEmpty() &&
                 faces != null && !faces.isEmpty());
 
+        // Проверяем наличие материалов
+        if (isModelLoaded && faces != null) {
+            useMaterialColors = false;
+            for (Simple3DRenderer.Face face : faces) {
+                if (face.materialName != null) {
+                    useMaterialColors = true;
+                    break;
+                }
+            }
+        }
+
         if (isModelLoaded) {
-            Log.d(TAG, "Геометрия загружена: " + vertices.size() + " вершин");
+            Log.d(TAG, "Геометрия загружена: " + vertices.size() + " вершин, " +
+                    "Текстуры: " + (useTextures ? "Да" : "Нет"));
             needsRegenerateCache.set(true);
             generateCachedModel();
         }
+    }
+
+    /**
+     * Установка материалов и текстур
+     */
+    public void setMaterialsAndTextures(Map<String, MaterialInfo> materials,
+                                        Map<String, Bitmap> textures) {
+        this.materials.clear();
+        this.textures.clear();
+
+        if (materials != null) {
+            this.materials.putAll(materials);
+            useMaterialColors = !this.materials.isEmpty();
+        }
+
+        if (textures != null) {
+            this.textures.putAll(textures);
+            useTextures = !this.textures.isEmpty();
+        }
+
+        Log.d(TAG, "Установлено материалов: " + this.materials.size() +
+                ", текстур: " + this.textures.size());
     }
 
     public void updateQRPosition(Rect bounds) {
         if (bounds != null) {
             this.qrBounds = new Rect(bounds);
 
-            // Генерируем кэш если нужно
             if (needsRegenerateCache.get() && cachedModelBitmap == null) {
                 generateCachedModel();
             }
 
-            // Контроль FPS
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastFrameTime >= FRAME_TIME_MS) {
                 lastFrameTime = currentTime;
@@ -225,7 +245,7 @@ public class AROverlayView extends View {
     }
 
     /**
-     * Генерирует кэшированную отрисовку модели ОДИН РАЗ
+     * Генерация кэша с текстурами
      */
     private void generateCachedModel() {
         if (!isModelLoaded || isGeneratingCache.get()) {
@@ -236,22 +256,17 @@ public class AROverlayView extends View {
 
         renderExecutor.execute(() -> {
             try {
-                Log.d(TAG, "Генерация кэша модели...");
+                Log.d(TAG, "Генерация кэша модели (текстуры: " + useTextures + ")...");
 
-                // Создаем bitmap для кэша
                 Bitmap bitmap = Bitmap.createBitmap(CACHE_SIZE, CACHE_SIZE, Bitmap.Config.ARGB_8888);
                 Canvas canvas = new Canvas(bitmap);
 
-                // Рендерим модель в центр bitmap
                 renderModelToCanvas(canvas, CACHE_SIZE, CACHE_SIZE);
 
-                // Сохраняем кэш
                 cachedModelBitmap = bitmap;
                 needsRegenerateCache.set(false);
 
                 Log.d(TAG, "Кэш модели готов!");
-
-                // Обновляем UI
                 postInvalidate();
 
             } catch (Exception e) {
@@ -263,71 +278,101 @@ public class AROverlayView extends View {
     }
 
     /**
-     * Рендерит 3D модель на canvas (вызывается ОДИН РАЗ для создания кэша)
+     * Получить цвет из текстуры по UV
+     */
+    private int getTextureColor(Bitmap texture, float u, float v, float brightness) {
+        if (texture == null) {
+            return Color.WHITE;
+        }
+
+        // Нормализуем UV
+        u = u - (float)Math.floor(u);
+        v = v - (float)Math.floor(v);
+
+        // Конвертируем в пиксели
+        int x = Math.max(0, Math.min((int)(u * (texture.getWidth() - 1)), texture.getWidth() - 1));
+        int y = Math.max(0, Math.min((int)((1.0f - v) * (texture.getHeight() - 1)), texture.getHeight() - 1));
+
+        int pixel = texture.getPixel(x, y);
+
+        int r = (int)(Color.red(pixel) * brightness);
+        int g = (int)(Color.green(pixel) * brightness);
+        int b = (int)(Color.blue(pixel) * brightness);
+        int a = Color.alpha(pixel);
+
+        return Color.argb(a, r, g, b);
+    }
+
+    /**
+     * Рендерит модель с текстурами
      */
     private void renderModelToCanvas(Canvas canvas, int width, int height) {
         float centerX = width / 2f;
         float centerY = height / 2f;
-        float scale = width * 0.35f; // Модель занимает ~70% bitmap
+        float scale = width * 0.35f;
 
-        // Проецируем вершины
+        // Проецируем вершины (с сохранением индексов)
         List<ProjectedVertex> projectedVertices = new ArrayList<>();
 
-        for (Simple3DRenderer.Vector3 v : vertices) {
+        for (int i = 0; i < vertices.size(); i++) {
+            Simple3DRenderer.Vector3 v = vertices.get(i);
             Simple3DRenderer.Vector3 transformed = transformVertex(v);
             Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
-            projectedVertices.add(new ProjectedVertex(projected, transformed.z));
+
+            // UV координаты будут извлечены из граней
+            projectedVertices.add(new ProjectedVertex(projected, transformed.z, 0, 0));
         }
 
-        // Сортируем грани по глубине
+        // Сортируем грани
         List<FaceDepth> sortedFaces = new ArrayList<>();
         for (Simple3DRenderer.Face face : faces) {
             float avgDepth = 0;
-            for (int idx : face.indices) {
+            for (int idx : face.vertexIndices) {
                 if (idx < projectedVertices.size()) {
                     avgDepth += projectedVertices.get(idx).z;
                 }
             }
-            avgDepth /= face.indices.length;
+            avgDepth /= face.vertexIndices.length;
             sortedFaces.add(new FaceDepth(face, avgDepth));
         }
 
         sortedFaces.sort((a, b) -> Float.compare(a.depth, b.depth));
 
-        // Рисуем грани
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
 
         Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         strokePaint.setStyle(Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(2);
+        strokePaint.setStrokeWidth(1);
 
         Path path = new Path();
 
+        // Рисуем грани
         for (FaceDepth fd : sortedFaces) {
             Simple3DRenderer.Face face = fd.face;
 
-            // Вычисляем нормаль для освещения
             Simple3DRenderer.Vector3 normal = calculateNormal(face);
-            float brightness = Math.max(0.3f, Math.abs(normal.z) * 0.7f + 0.3f);
+            float brightness = Math.max(0.4f, Math.abs(normal.z) * 0.6f + 0.4f);
 
-            // Цвет
-            int baseR = (int)(ModelConfig.COLOR_R * brightness);
-            int baseG = (int)(ModelConfig.COLOR_G * brightness);
-            int baseB = (int)(ModelConfig.COLOR_B * brightness);
+            // Получаем цвет (с текстурой если есть)
+            int color = getFaceColor(face, brightness);
 
-            fillPaint.setColor(Color.argb(ModelConfig.ALPHA, baseR, baseG, baseB));
-            strokePaint.setColor(Color.argb(255, baseR / 2, baseG / 2, baseB / 2));
+            fillPaint.setColor(color);
+            strokePaint.setColor(Color.argb(
+                    Math.min(255, Color.alpha(color) + 30),
+                    Color.red(color) / 2,
+                    Color.green(color) / 2,
+                    Color.blue(color) / 2
+            ));
 
-            // Строим путь
             path.rewind();
-            if (face.indices.length > 0 && face.indices[0] < projectedVertices.size()) {
-                Vector2 first = projectedVertices.get(face.indices[0]).position;
+            if (face.vertexIndices.length > 0 && face.vertexIndices[0] < projectedVertices.size()) {
+                Vector2 first = projectedVertices.get(face.vertexIndices[0]).position;
                 path.moveTo(first.x, first.y);
 
-                for (int i = 1; i < face.indices.length; i++) {
-                    if (face.indices[i] < projectedVertices.size()) {
-                        Vector2 point = projectedVertices.get(face.indices[i]).position;
+                for (int i = 1; i < face.vertexIndices.length; i++) {
+                    if (face.vertexIndices[i] < projectedVertices.size()) {
+                        Vector2 point = projectedVertices.get(face.vertexIndices[i]).position;
                         path.lineTo(point.x, point.y);
                     }
                 }
@@ -336,6 +381,44 @@ public class AROverlayView extends View {
                 canvas.drawPath(path, fillPaint);
                 canvas.drawPath(path, strokePaint);
             }
+        }
+    }
+
+    /**
+     * Получить цвет грани с учетом текстуры
+     */
+    private int getFaceColor(Simple3DRenderer.Face face, float brightness) {
+        if (face.materialName != null && materials.containsKey(face.materialName)) {
+            MaterialInfo material = materials.get(face.materialName);
+
+            // Если есть текстура для этого материала
+            if (useTextures && textures.containsKey(face.materialName)) {
+                Bitmap texture = textures.get(face.materialName);
+
+                // Берем UV первой вершины (упрощение)
+                if (face.uvIndices != null && face.uvIndices.length > 0) {
+                    // UV координаты сохранены в face, используем центр грани
+                    float avgU = 0.5f;
+                    float avgV = 0.5f;
+                    return getTextureColor(texture, avgU, avgV, brightness);
+                }
+            }
+
+            // Цвет материала без текстуры
+            int r = (int)(material.colorR * brightness);
+            int g = (int)(material.colorG * brightness);
+            int b = (int)(material.colorB * brightness);
+            int alpha = material.alpha;
+
+            return Color.argb(alpha, r, g, b);
+        } else {
+            // Стандартный цвет
+            int r = (int)(ModelConfig.COLOR_R * brightness);
+            int g = (int)(ModelConfig.COLOR_G * brightness);
+            int b = (int)(ModelConfig.COLOR_B * brightness);
+            int alpha = ModelConfig.ALPHA;
+
+            return Color.argb(alpha, r, g, b);
         }
     }
 
@@ -357,32 +440,24 @@ public class AROverlayView extends View {
             return;
         }
 
-        // Рисуем рамку QR
         if (showQR) {
             canvas.drawRect(qrBounds, qrPaint);
         }
 
-        // Рисуем кэшированную модель с трансформацией
         if (cachedModelBitmap != null) {
             drawTransformedModel(canvas);
         }
     }
 
-    /**
-     * БЫСТРАЯ отрисовка - просто трансформируем и рисуем готовый bitmap
-     * Теперь с учетом пользовательского масштаба
-     */
     private void drawTransformedModel(Canvas canvas) {
         float qrCenterX = qrBounds.centerX();
         float qrCenterY = qrBounds.centerY();
         float qrSize = Math.max(qrBounds.width(), qrBounds.height());
 
-        // Целевая позиция и размер (теперь с userScale)
         float targetCenterX = qrCenterX + (offsetX * qrSize);
         float targetCenterY = qrCenterY + (offsetY * qrSize);
         float targetScale = (qrSize * modelScale * userScale * 0.8f) / (CACHE_SIZE * 0.35f);
 
-        // Плавное сглаживание
         if (smoothCenterX == 0 && smoothCenterY == 0) {
             smoothCenterX = targetCenterX;
             smoothCenterY = targetCenterY;
@@ -393,19 +468,11 @@ public class AROverlayView extends View {
             smoothScale += (targetScale - smoothScale) * SMOOTH_FACTOR;
         }
 
-        // Создаем матрицу трансформации
         transformMatrix.reset();
-
-        // 1. Смещаем bitmap так чтобы центр был в (0,0)
         transformMatrix.postTranslate(-CACHE_SIZE / 2f, -CACHE_SIZE / 2f);
-
-        // 2. Масштабируем
         transformMatrix.postScale(smoothScale, smoothScale);
-
-        // 3. Перемещаем в финальную позицию
         transformMatrix.postTranslate(smoothCenterX, smoothCenterY);
 
-        // РИСУЕМ - это ОЧЕНЬ быстрая операция!
         canvas.drawBitmap(cachedModelBitmap, transformMatrix, bitmapPaint);
     }
 
@@ -434,7 +501,6 @@ public class AROverlayView extends View {
         }
 
         z += offsetZ;
-
         return new Simple3DRenderer.Vector3(x, y, z);
     }
 
@@ -448,19 +514,19 @@ public class AROverlayView extends View {
     }
 
     private Simple3DRenderer.Vector3 calculateNormal(Simple3DRenderer.Face face) {
-        if (face.indices.length < 3 || vertices == null || vertices.isEmpty()) {
+        if (face.vertexIndices.length < 3 || vertices == null || vertices.isEmpty()) {
             return new Simple3DRenderer.Vector3(0, 0, 1);
         }
 
-        if (face.indices[0] >= vertices.size() ||
-                face.indices[1] >= vertices.size() ||
-                face.indices[2] >= vertices.size()) {
+        if (face.vertexIndices[0] >= vertices.size() ||
+                face.vertexIndices[1] >= vertices.size() ||
+                face.vertexIndices[2] >= vertices.size()) {
             return new Simple3DRenderer.Vector3(0, 0, 1);
         }
 
-        Simple3DRenderer.Vector3 v0 = vertices.get(face.indices[0]);
-        Simple3DRenderer.Vector3 v1 = vertices.get(face.indices[1]);
-        Simple3DRenderer.Vector3 v2 = vertices.get(face.indices[2]);
+        Simple3DRenderer.Vector3 v0 = vertices.get(face.vertexIndices[0]);
+        Simple3DRenderer.Vector3 v1 = vertices.get(face.vertexIndices[1]);
+        Simple3DRenderer.Vector3 v2 = vertices.get(face.vertexIndices[2]);
 
         float e1x = v1.x - v0.x, e1y = v1.y - v0.y, e1z = v1.z - v0.z;
         float e2x = v2.x - v0.x, e2y = v2.y - v0.y, e2z = v2.z - v0.z;
@@ -490,9 +556,13 @@ public class AROverlayView extends View {
     private static class ProjectedVertex {
         Vector2 position;
         float z;
-        ProjectedVertex(Vector2 position, float z) {
+        float u, v;
+
+        ProjectedVertex(Vector2 position, float z, float u, float v) {
             this.position = position;
             this.z = z;
+            this.u = u;
+            this.v = v;
         }
     }
 
@@ -505,6 +575,20 @@ public class AROverlayView extends View {
         }
     }
 
+    public static class MaterialInfo {
+        public int colorR;
+        public int colorG;
+        public int colorB;
+        public int alpha;
+
+        public MaterialInfo(int r, int g, int b, int alpha) {
+            this.colorR = r;
+            this.colorG = g;
+            this.colorB = b;
+            this.alpha = alpha;
+        }
+    }
+
     public void cleanup() {
         if (renderExecutor != null) {
             renderExecutor.shutdown();
@@ -512,6 +596,13 @@ public class AROverlayView extends View {
         if (cachedModelBitmap != null && !cachedModelBitmap.isRecycled()) {
             cachedModelBitmap.recycle();
             cachedModelBitmap = null;
+        }
+        if (materials != null) {
+            materials.clear();
+        }
+        if (textures != null) {
+            // НЕ освобождаем текстуры здесь - они принадлежат рендереру
+            textures.clear();
         }
     }
 }

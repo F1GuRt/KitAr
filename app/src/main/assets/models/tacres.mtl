@@ -1,0 +1,138 @@
+# Exported from Fuse 2017.1.0
+
+newmtl Top
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Top_Opacity.png
+map_Kd tacres_Top_Diffuse.png
+adobe_map_normal tacres_Top_Normal.png
+map_Ks tacres_Top_Specular.png
+adobe_map_shininess tacres_Top_Gloss.png
+
+newmtl Eyewear
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Eyewear_Opacity.png
+map_Kd tacres_Eyewear_Diffuse.png
+adobe_map_normal tacres_Eyewear_Normal.png
+map_Ks tacres_Eyewear_Specular.png
+adobe_map_shininess tacres_Eyewear_Gloss.png
+
+newmtl Hat
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Hat_Opacity.png
+map_Kd tacres_Hat_Diffuse.png
+adobe_map_normal tacres_Hat_Normal.png
+map_Ks tacres_Hat_Specular.png
+adobe_map_shininess tacres_Hat_Gloss.png
+
+newmtl Mask
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Mask_Opacity.png
+map_Kd tacres_Mask_Diffuse.png
+adobe_map_normal tacres_Mask_Normal.png
+map_Ks tacres_Mask_Specular.png
+adobe_map_shininess tacres_Mask_Gloss.png
+
+newmtl Shoes
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Shoes_Opacity.png
+map_Kd tacres_Shoes_Diffuse.png
+adobe_map_normal tacres_Shoes_Normal.png
+map_Ks tacres_Shoes_Specular.png
+adobe_map_shininess tacres_Shoes_Gloss.png
+
+newmtl Hair
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Hair_Opacity.png
+map_Kd tacres_Hair_Diffuse.png
+adobe_map_normal tacres_Hair_Normal.png
+map_Ks tacres_Hair_Specular.png
+adobe_map_shininess tacres_Hair_Gloss.png
+
+newmtl Bottom
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Bottom_Opacity.png
+map_Kd tacres_Bottom_Diffuse.png
+adobe_map_normal tacres_Bottom_Normal.png
+map_Ks tacres_Bottom_Specular.png
+adobe_map_shininess tacres_Bottom_Gloss.png
+
+newmtl Body
+illum 4 
+Kd 1.00 1.00 1.00 
+Tf 1.00 1.00 1.00 
+Ni 1.00 
+Ks 1.00 1.00 1.00 
+Ns 512 
+adobe_reflectivity 0.04 
+adobe_bump_strength 0.0 
+d 1.0 
+
+map_d tacres_Body_Opacity.png
+map_Kd tacres_Body_Diffuse.png
+adobe_map_normal tacres_Body_Normal.png
+map_Ks tacres_Body_Specular.png
+adobe_map_shininess tacres_Body_Gloss.png
+

@@ -48,6 +48,9 @@ dependencies {
 
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta4")
 
+    implementation("de.javagl:jgltf-model:2.0.3")
+    implementation("de.javagl:jgltf-impl-v2:2.0.3")
+
 
     implementation(libs.appcompat)
     implementation(libs.material)
