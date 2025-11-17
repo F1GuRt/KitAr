@@ -213,7 +213,7 @@ public class SegmentationHelper {
     }
 
     /**
-     * Очистка ресурсов
+     * Очистка ресурсов f
      */
     public void cleanup() {
         if (segmenter != null) {

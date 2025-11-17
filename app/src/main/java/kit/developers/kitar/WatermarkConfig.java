@@ -105,7 +105,7 @@ public class WatermarkConfig {
      * ПРИМЕР 2: Большой водяной знак в центре (полупрозрачный)
      * WATERMARK_SCALE = 0.5f
      * POSITION = Position.CENTER
-     * ALPHA = 100
+     * ALPHA = 100 f
      *
      * ПРИМЕР 3: Логотип в верхнем левом углу
      * WATERMARK_SCALE = 0.2f

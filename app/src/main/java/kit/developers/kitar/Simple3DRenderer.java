@@ -875,7 +875,7 @@ public class Simple3DRenderer {
             faces.clear();
         }
         if (materials != null) {
-            // Освобождаем текстуры
+            // Освобождаем текстуры ff
             for (Material mat : materials.values()) {
                 if (mat.diffuseTexture != null && !mat.diffuseTexture.isRecycled()) {
                     mat.diffuseTexture.recycle();

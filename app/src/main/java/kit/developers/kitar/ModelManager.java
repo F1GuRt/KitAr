@@ -27,7 +27,7 @@ public class ModelManager {
     }
 
     /**
-     * Автоматически загружает список доступных моделей из assets/models/
+     * Автоматически загружает список доступных моделей из assets/models/f
      */
     private void loadAvailableModels() {
         try {

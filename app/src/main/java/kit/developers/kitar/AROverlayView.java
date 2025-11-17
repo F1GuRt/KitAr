@@ -278,7 +278,7 @@ public class AROverlayView extends View {
     }
 
     /**
-     * Получить цвет из текстуры по UV
+     * Получить цвет из текстуры по UV gd
      */
     private int getTextureColor(Bitmap texture, float u, float v, float brightness) {
         if (texture == null) {

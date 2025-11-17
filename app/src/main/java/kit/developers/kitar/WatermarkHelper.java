@@ -12,7 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * Класс для наложения водяного знака на изображение
+ * Класс для наложения водяного знака на изображение /
  */
 public class WatermarkHelper {
 

@@ -492,7 +492,6 @@ public class MainActivity extends AppCompatActivity {
 
                 runOnUiThread(() -> showStatus("Рендеринг 3D модели с цветами..."));
 
-                // Создаем прозрачный bitmap с 3D моделью (с MTL цветами)
                 Bitmap transparentModelBitmap = createTransparentModelBitmap(photoBitmap, qrBounds);
 
                 if (transparentModelBitmap == null) {
