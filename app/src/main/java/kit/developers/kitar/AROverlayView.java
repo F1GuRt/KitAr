@@ -35,7 +35,7 @@ public class AROverlayView extends View {
     private List<Simple3DRenderer.Vector3> vertices;
     private List<Simple3DRenderer.Face> faces;
     private Map<String, MaterialInfo> materials;
-    private Map<String, Bitmap> textures; // Кэш текстур
+    private Map<String, Bitmap> textures;
     private boolean isModelLoaded = false;
     private boolean showQR = false;
     private boolean useMaterialColors = false;
@@ -44,10 +44,12 @@ public class AROverlayView extends View {
     private Paint qrPaint;
     private Paint bitmapPaint;
 
-    // Кэшированная отрисовка модели
+    // Кэш модели (большой, для рендеринга)
     private Bitmap cachedModelBitmap;
-    private Matrix transformMatrix;
-    private RectF lastQrBoundsF;
+
+    // Текущий отрендеренный bitmap (актуальная позиция и масштаб)
+    private Bitmap currentRenderedBitmap;
+    private Canvas currentCanvas;
 
     private static final int CACHE_SIZE = 8000;
 
@@ -72,16 +74,21 @@ public class AROverlayView extends View {
     private ExecutorService renderExecutor;
     private AtomicBoolean isGeneratingCache = new AtomicBoolean(false);
     private AtomicBoolean needsRegenerateCache = new AtomicBoolean(true);
+    private AtomicBoolean isRendering = new AtomicBoolean(false);
 
     // FPS контроль
     private long lastFrameTime = 0;
 
-    // Сглаживание
-    private float smoothCenterX, smoothCenterY, smoothScale;
-    private static final float SMOOTH_FACTOR = 0.95f;
-
     // Детектор жестов
     private ScaleGestureDetector scaleGestureDetector;
+
+    // Отслеживание движения QR для умного обновления
+    private Rect lastQrBounds = null;
+    private float lastUserScale = 1.0f;
+    private static final float QR_MOVEMENT_THRESHOLD = 15.0f;  // Порог движения в пикселях
+    private static final float SCALE_CHANGE_THRESHOLD = 0.05f;  // Порог изменения масштаба (5%)
+    private long lastRenderTime = 0;
+    private static final long MIN_RENDER_INTERVAL_MS = 100;  // Минимальный интервал между рендерами
 
     public interface OnScaleChangeListener {
         void onScaleChanged(float scale);
@@ -108,8 +115,6 @@ public class AROverlayView extends View {
 
         bitmapPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
-        transformMatrix = new Matrix();
-        lastQrBoundsF = new RectF();
         materials = new HashMap<>();
         textures = new HashMap<>();
 
@@ -236,12 +241,140 @@ public class AROverlayView extends View {
                 generateCachedModel();
             }
 
+            // Проверяем, нужно ли обновить рендер
+            if (shouldUpdateRender(bounds)) {
+                updateCurrentRender();
+            }
+
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastFrameTime >= FRAME_TIME_MS) {
                 lastFrameTime = currentTime;
                 invalidate();
             }
         }
+    }
+
+    /**
+     * Проверяет, нужно ли обновлять рендер на основе движения QR и масштаба
+     */
+    private boolean shouldUpdateRender(Rect currentBounds) {
+        // Если это первый рендер
+        if (lastQrBounds == null || currentRenderedBitmap == null) {
+            return true;
+        }
+
+        // Проверяем время с последнего рендера
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastRenderTime < MIN_RENDER_INTERVAL_MS) {
+            return false;
+        }
+
+        // Проверяем изменение масштаба
+        float scaleChange = Math.abs(userScale - lastUserScale) / lastUserScale;
+        if (scaleChange > SCALE_CHANGE_THRESHOLD) {
+            return true;
+        }
+
+        // Вычисляем смещение центра QR
+        float oldCenterX = lastQrBounds.centerX();
+        float oldCenterY = lastQrBounds.centerY();
+        float newCenterX = currentBounds.centerX();
+        float newCenterY = currentBounds.centerY();
+
+        float deltaX = newCenterX - oldCenterX;
+        float deltaY = newCenterY - oldCenterY;
+        float distance = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        // Проверяем изменение размера QR
+        float oldSize = Math.max(lastQrBounds.width(), lastQrBounds.height());
+        float newSize = Math.max(currentBounds.width(), currentBounds.height());
+        float sizeChange = Math.abs(newSize - oldSize);
+
+        // Обновляем если:
+        // 1. QR сместился на значительное расстояние
+        // 2. Размер QR значительно изменился
+        return distance > QR_MOVEMENT_THRESHOLD || sizeChange > QR_MOVEMENT_THRESHOLD;
+    }
+
+    /**
+     * Обновляет текущий рендер модели
+     */
+    private void updateCurrentRender() {
+        if (!isModelLoaded || cachedModelBitmap == null || isRendering.get()) {
+            return;
+        }
+
+        isRendering.set(true);
+
+        // Сохраняем текущее состояние
+        final Rect qrBoundsCopy = new Rect(qrBounds);
+        final float currentUserScale = userScale;
+
+        renderExecutor.execute(() -> {
+            try {
+                int viewWidth = getWidth();
+                int viewHeight = getHeight();
+
+                if (viewWidth <= 0 || viewHeight <= 0) {
+                    isRendering.set(false);
+                    return;
+                }
+
+                // Создаем bitmap размером с view
+                Bitmap newBitmap = Bitmap.createBitmap(viewWidth, viewHeight, Bitmap.Config.ARGB_8888);
+                Canvas canvas = new Canvas(newBitmap);
+
+                // Рендерим модель в текущую позицию
+                renderModelAtPosition(canvas, qrBoundsCopy, currentUserScale);
+
+                // Атомарно обновляем текущий bitmap
+                Bitmap oldBitmap = currentRenderedBitmap;
+                currentRenderedBitmap = newBitmap;
+
+                // Освобождаем старый bitmap
+                if (oldBitmap != null && !oldBitmap.isRecycled()) {
+                    oldBitmap.recycle();
+                }
+
+                // Обновляем состояние
+                lastQrBounds = new Rect(qrBoundsCopy);
+                lastUserScale = currentUserScale;
+                lastRenderTime = System.currentTimeMillis();
+
+                postInvalidate();
+
+            } catch (Exception e) {
+                Log.e(TAG, "Ошибка обновления рендера", e);
+            } finally {
+                isRendering.set(false);
+            }
+        });
+    }
+
+    /**
+     * Рендерит модель в заданную позицию на canvas
+     */
+    private void renderModelAtPosition(Canvas canvas, Rect qrBounds, float scale) {
+        float qrCenterX = qrBounds.centerX();
+        float qrCenterY = qrBounds.centerY();
+        float qrSize = Math.max(qrBounds.width(), qrBounds.height());
+
+        float centerX = qrCenterX + (offsetX * qrSize);
+        float centerY = qrCenterY + (offsetY * qrSize);
+        float modelScaleValue = qrSize * modelScale * scale * 0.8f;
+
+        // Рендерим из кэша с трансформацией
+        Matrix matrix = new Matrix();
+
+        // Вычисляем масштаб от кэша к целевому размеру
+        float cacheScale = modelScaleValue / (CACHE_SIZE * 0.35f);
+
+        matrix.postTranslate(-CACHE_SIZE / 2f, -CACHE_SIZE / 2f);
+        matrix.postScale(cacheScale, cacheScale);
+        matrix.postTranslate(centerX, centerY);
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        canvas.drawBitmap(cachedModelBitmap, matrix, paint);
     }
 
     /**
@@ -267,6 +400,9 @@ public class AROverlayView extends View {
                 needsRegenerateCache.set(false);
 
                 Log.d(TAG, "Кэш модели готов!");
+
+                // Принудительно обновляем рендер после генерации кэша
+                lastQrBounds = null;
                 postInvalidate();
 
             } catch (Exception e) {
@@ -278,7 +414,7 @@ public class AROverlayView extends View {
     }
 
     /**
-     * Получить цвет из текстуры по UV gd
+     * Получить цвет из текстуры по UV координатам
      */
     private int getTextureColor(Bitmap texture, float u, float v, float brightness) {
         if (texture == null) {
@@ -304,14 +440,14 @@ public class AROverlayView extends View {
     }
 
     /**
-     * Рендерит модель с текстурами
+     * Рендерит модель с текстурами в кэш
      */
     private void renderModelToCanvas(Canvas canvas, int width, int height) {
         float centerX = width / 2f;
         float centerY = height / 2f;
         float scale = width * 0.35f;
 
-        // Проецируем вершины (с сохранением индексов)
+        // Проецируем вершины
         List<ProjectedVertex> projectedVertices = new ArrayList<>();
 
         for (int i = 0; i < vertices.size(); i++) {
@@ -319,7 +455,6 @@ public class AROverlayView extends View {
             Simple3DRenderer.Vector3 transformed = transformVertex(v);
             Vector2 projected = projectVertex(transformed, scale, centerX, centerY);
 
-            // UV координаты будут извлечены из граней
             projectedVertices.add(new ProjectedVertex(projected, transformed.z, 0, 0));
         }
 
@@ -354,7 +489,6 @@ public class AROverlayView extends View {
             Simple3DRenderer.Vector3 normal = calculateNormal(face);
             float brightness = Math.max(0.4f, Math.abs(normal.z) * 0.6f + 0.4f);
 
-            // Получаем цвет (с текстурой если есть)
             int color = getFaceColor(face, brightness);
 
             fillPaint.setColor(color);
@@ -395,9 +529,7 @@ public class AROverlayView extends View {
             if (useTextures && textures.containsKey(face.materialName)) {
                 Bitmap texture = textures.get(face.materialName);
 
-                // Берем UV первой вершины (упрощение)
                 if (face.uvIndices != null && face.uvIndices.length > 0) {
-                    // UV координаты сохранены в face, используем центр грани
                     float avgU = 0.5f;
                     float avgV = 0.5f;
                     return getTextureColor(texture, avgU, avgV, brightness);
@@ -424,6 +556,14 @@ public class AROverlayView extends View {
 
     public void clearQRPosition() {
         this.qrBounds = null;
+        lastQrBounds = null;
+
+        // Освобождаем текущий рендер
+        if (currentRenderedBitmap != null && !currentRenderedBitmap.isRecycled()) {
+            currentRenderedBitmap.recycle();
+            currentRenderedBitmap = null;
+        }
+
         invalidate();
     }
 
@@ -444,36 +584,10 @@ public class AROverlayView extends View {
             canvas.drawRect(qrBounds, qrPaint);
         }
 
-        if (cachedModelBitmap != null) {
-            drawTransformedModel(canvas);
+        // Рисуем текущий отрендеренный bitmap
+        if (currentRenderedBitmap != null && !currentRenderedBitmap.isRecycled()) {
+            canvas.drawBitmap(currentRenderedBitmap, 0, 0, null);
         }
-    }
-
-    private void drawTransformedModel(Canvas canvas) {
-        float qrCenterX = qrBounds.centerX();
-        float qrCenterY = qrBounds.centerY();
-        float qrSize = Math.max(qrBounds.width(), qrBounds.height());
-
-        float targetCenterX = qrCenterX + (offsetX * qrSize);
-        float targetCenterY = qrCenterY + (offsetY * qrSize);
-        float targetScale = (qrSize * modelScale * userScale * 0.8f) / (CACHE_SIZE * 0.35f);
-
-        if (smoothCenterX == 0 && smoothCenterY == 0) {
-            smoothCenterX = targetCenterX;
-            smoothCenterY = targetCenterY;
-            smoothScale = targetScale;
-        } else {
-            smoothCenterX += (targetCenterX - smoothCenterX) * SMOOTH_FACTOR;
-            smoothCenterY += (targetCenterY - smoothCenterY) * SMOOTH_FACTOR;
-            smoothScale += (targetScale - smoothScale) * SMOOTH_FACTOR;
-        }
-
-        transformMatrix.reset();
-        transformMatrix.postTranslate(-CACHE_SIZE / 2f, -CACHE_SIZE / 2f);
-        transformMatrix.postScale(smoothScale, smoothScale);
-        transformMatrix.postTranslate(smoothCenterX, smoothCenterY);
-
-        canvas.drawBitmap(cachedModelBitmap, transformMatrix, bitmapPaint);
     }
 
     private Simple3DRenderer.Vector3 transformVertex(Simple3DRenderer.Vector3 v) {
@@ -597,11 +711,14 @@ public class AROverlayView extends View {
             cachedModelBitmap.recycle();
             cachedModelBitmap = null;
         }
+        if (currentRenderedBitmap != null && !currentRenderedBitmap.isRecycled()) {
+            currentRenderedBitmap.recycle();
+            currentRenderedBitmap = null;
+        }
         if (materials != null) {
             materials.clear();
         }
         if (textures != null) {
-            // НЕ освобождаем текстуры здесь - они принадлежат рендереру
             textures.clear();
         }
     }
