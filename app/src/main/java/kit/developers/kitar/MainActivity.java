@@ -814,12 +814,25 @@ public class MainActivity extends AppCompatActivity {
                 imageHeight = temp;
             }
 
+            // ИСПРАВЛЕНИЕ: учитываем фронтальную камеру
+            boolean isFrontCamera = lensFacing == CameraSelector.LENS_FACING_FRONT;
+
             float scaleX = (float) viewWidth / imageWidth;
             float scaleY = (float) viewHeight / imageHeight;
 
-            int left = (int) (imageBounds.left * scaleX);
+            int left, right;
+
+            if (isFrontCamera) {
+                // Для фронтальной камеры зеркалим координаты по горизонтали
+                left = (int) ((imageWidth - imageBounds.right) * scaleX);
+                right = (int) ((imageWidth - imageBounds.left) * scaleX);
+            } else {
+                // Для задней камеры используем обычные координаты
+                left = (int) (imageBounds.left * scaleX);
+                right = (int) (imageBounds.right * scaleX);
+            }
+
             int top = (int) (imageBounds.top * scaleY);
-            int right = (int) (imageBounds.right * scaleX);
             int bottom = (int) (imageBounds.bottom * scaleY);
 
             return new Rect(left, top, right, bottom);
