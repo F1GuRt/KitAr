@@ -1,30 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+
+    <!-- Центральный 3D куб с AR эффектом -->
+
+    <!-- Задняя грань (темная) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
+        android:fillColor="#1976D2"
+        android:pathData="M54,32 L38,42 L38,62 L54,72 L70,62 L70,42 Z" />
+
+    <!-- Верхняя грань (светлая) -->
+    <path
+        android:fillColor="#2196F3"
+        android:pathData="M54,32 L38,42 L54,52 L70,42 Z" />
+
+    <!-- Правая грань (средняя) -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M54,52 L70,42 L70,62 L54,72 Z" />
+
+    <!-- QR-код элементы вокруг куба -->
+
+    <!-- Верхний левый угол QR -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M25,25 L30,25 L30,30 L25,30 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M32,25 L35,25 L35,28 L32,28 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M25,32 L28,32 L28,35 L25,35 Z" />
+
+    <!-- Верхний правый угол QR -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M78,25 L83,25 L83,30 L78,30 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M73,25 L76,25 L76,28 L73,28 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M80,32 L83,32 L83,35 L80,35 Z" />
+
+    <!-- Нижний левый угол QR -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M25,78 L30,78 L30,83 L25,83 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M32,80 L35,80 L35,83 L32,83 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M25,73 L28,73 L28,76 L25,76 Z" />
+
+    <!-- Нижний правый угол QR -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M78,78 L83,78 L83,83 L78,83 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M73,80 L76,80 L76,83 L73,83 Z" />
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M80,73 L83,73 L83,76 L80,76 Z" />
+    <!-- Линии проекции AR -->
+    <path
+        android:strokeColor="#FFFFFF"
         android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+        android:strokeAlpha="0.6"
+        android:pathData="M54,32 L54,20" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1"
+        android:strokeAlpha="0.6"
+        android:pathData="M38,42 L28,42" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1"
+        android:strokeAlpha="0.6"
+        android:pathData="M70,42 L80,42" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1"
+        android:strokeAlpha="0.6"
+        android:pathData="M54,72 L54,84" />
+
 </vector>

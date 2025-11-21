@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class AROverlayView extends View {
 
     private static final String TAG = "AROverlayView";
-    private static final long FRAME_TIME_MS = 33; // ~30 FPS
+    private static final long FRAME_TIME_MS = 66; // ~30 FPS
 
     private Rect qrBounds;
     private List<Simple3DRenderer.Vector3> vertices;
@@ -88,7 +88,7 @@ public class AROverlayView extends View {
     private static final float QR_MOVEMENT_THRESHOLD = 15.0f;  // Порог движения в пикселях
     private static final float SCALE_CHANGE_THRESHOLD = 0.05f;  // Порог изменения масштаба (5%)
     private long lastRenderTime = 0;
-    private static final long MIN_RENDER_INTERVAL_MS = 100;  // Минимальный интервал между рендерами
+    private static final long MIN_RENDER_INTERVAL_MS = 20;  // Минимальный интервал между рендерами
 
     public interface OnScaleChangeListener {
         void onScaleChanged(float scale);

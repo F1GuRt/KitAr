@@ -1,0 +1,45 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- 3D Куб -->
+    <!-- Задняя грань -->
+    <path
+        android:fillColor="#80FFFFFF"
+        android:pathData="M60,30 L35,45 L35,75 L60,90 L85,75 L85,45 Z" />
+
+    <!-- Верхняя грань -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,30 L35,45 L60,60 L85,45 Z" />
+
+    <!-- Правая грань -->
+    <path
+        android:fillColor="#CCFFFFFF"
+        android:pathData="M60,60 L85,45 L85,75 L60,90 Z" />
+
+    <!-- QR элементы по углам -->
+    <!-- Верхний левый -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,10 L20,10 L20,20 L10,20 Z" />
+
+    <!-- Верхний правый -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M100,10 L110,10 L110,20 L100,20 Z" />
+
+    <!-- Нижний левый -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10,100 L20,100 L20,110 L10,110 Z" />
+
+    <!-- Нижний правый -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M100,100 L110,100 L110,110 L100,110 Z" />
+
+
+</vector>
