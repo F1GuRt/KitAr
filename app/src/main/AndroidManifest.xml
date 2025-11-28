@@ -47,6 +47,13 @@
             android:theme="@style/Theme.KitAr"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity
+            android:name=".PhotoPreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.KitAr"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
 
     </application>
 

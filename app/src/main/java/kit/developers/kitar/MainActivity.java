@@ -5,6 +5,7 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -47,6 +48,7 @@ import com.google.mlkit.vision.barcode.BarcodeScanning;
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.common.InputImage;
 
+import java.io.File;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
@@ -61,6 +63,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE_PERMISSIONS = 10;
     private static final String[] REQUIRED_PERMISSIONS = getRequiredPermissions();
     private static final String TARGET_URL = "https://kitar.com";
+
+    private static final int REQUEST_PHOTO_PREVIEW = 100;
 
     private ModelManager modelManager;
     private SegmentationHelper segmentationHelper;
@@ -438,6 +442,29 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_PHOTO_PREVIEW) {
+            if (resultCode == RESULT_OK) {
+                // Фото сохранено успешно
+                boolean photoSaved = data != null && data.getBooleanExtra("photo_saved", false);
+                if (photoSaved) {
+                    updateStatus("Готово!", "Фото сохранено в галерее", R.drawable.ic_check_circle);
+
+                    // Через 2 секунды возвращаем статус к обычному
+                    new Handler().postDelayed(() -> {
+                        updateStatus("Найдите QR-код", "Наведите камеру на QR-код для AR", R.drawable.ic_qr_scan);
+                    }, 2000);
+                }
+            } else {
+                // Пользователь решил переснять
+                updateStatus("Найдите QR-код", "Наведите камеру на QR-код для AR", R.drawable.ic_qr_scan);
+            }
+        }
+    }
+
     private void showTemporaryMessage(String message) {
         runOnUiThread(() -> {
             updateStatus(message, "Нажмите кнопку камеры для съемки", R.drawable.ic_qr_scan);
@@ -657,10 +684,16 @@ public class MainActivity extends AppCompatActivity {
 
                 if (resultBitmap != null) {
                     showProcessingStep(ProcessingStep.SAVING);
-                    boolean saved = saveImageToGallery(resultBitmap);
 
-                    if (saved) {
-                        runOnUiThread(() -> showSuccess());
+                    // Сохраняем во временный файл
+                    String tempPath = saveTempImage(resultBitmap);
+
+                    if (tempPath != null) {
+                        // Открываем экран предпросмотра
+                        runOnUiThread(() -> {
+                            hideProcessing();
+                            openPhotoPreview(tempPath);
+                        });
                     } else {
                         runOnUiThread(() -> {
                             hideProcessing();
@@ -683,6 +716,38 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(this::resetProcessing);
             }
         });
+    }
+
+    // Новый метод для сохранения временного файла:
+    private String saveTempImage(Bitmap bitmap) {
+        try {
+            File tempDir = new File(getCacheDir(), "temp_photos");
+            if (!tempDir.exists()) {
+                tempDir.mkdirs();
+            }
+
+            String filename = "temp_photo_" + System.currentTimeMillis() + ".jpg";
+            File tempFile = new File(tempDir, filename);
+
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(tempFile);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, fos);
+            fos.close();
+
+            Log.d(TAG, "Временное фото сохранено: " + tempFile.getAbsolutePath());
+            return tempFile.getAbsolutePath();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Ошибка сохранения временного файла", e);
+            return null;
+        }
+    }
+
+    // Новый метод для открытия предпросмотра:
+    private void openPhotoPreview(String photoPath) {
+        Intent intent = new Intent(this, PhotoPreviewActivity.class);
+        intent.putExtra(PhotoPreviewActivity.EXTRA_PHOTO_PATH, photoPath);
+        startActivityForResult(intent, REQUEST_PHOTO_PREVIEW);
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
 
     private Bitmap createTransparentModelBitmap(Bitmap photoBitmap, android.graphics.Rect qrBounds) {
