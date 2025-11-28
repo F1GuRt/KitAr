@@ -29,6 +29,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    aaptOptions {
+        noCompress ("tflite")
+        noCompress ("lite")
+    }
+
 }
 
 dependencies {
@@ -43,14 +48,12 @@ dependencies {
     implementation ("androidx.camera:camera-lifecycle:1.5.1")
     implementation ("androidx.camera:camera-view:1.5.1")
 
-    // ML Kit для QR сканирования
     implementation ("com.google.mlkit:barcode-scanning:17.2.0")
 
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta4")
 
     implementation("de.javagl:jgltf-model:2.0.3")
     implementation("de.javagl:jgltf-impl-v2:2.0.3")
-
 
     implementation(libs.appcompat)
     implementation(libs.material)

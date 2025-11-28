@@ -4,11 +4,15 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.graphics.PointF;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -26,7 +30,7 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * Activity для предпросмотра обработанного фото
+ * Activity для предпросмотра обработанного фото с поддержкой зума
  */
 public class PhotoPreviewActivity extends AppCompatActivity {
 
@@ -40,9 +44,29 @@ public class PhotoPreviewActivity extends AppCompatActivity {
     private ProgressBar progressBar;
     private TextView loadingText;
     private CardView successCard;
+    private TextView zoomText;
 
     private Bitmap photoBitmap;
     private String photoPath;
+
+    // Зум и перемещение
+    private Matrix matrix = new Matrix();
+    private Matrix savedMatrix = new Matrix();
+
+    private static final int NONE = 0;
+    private static final int DRAG = 1;
+    private static final int ZOOM = 2;
+    private int mode = NONE;
+
+    private PointF start = new PointF();
+    private PointF mid = new PointF();
+    private float oldDist = 1f;
+
+    private float minScale = 1f;
+    private float maxScale = 5f;
+    private float currentScale = 1f;
+
+    private ScaleGestureDetector scaleGestureDetector;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,6 +76,7 @@ public class PhotoPreviewActivity extends AppCompatActivity {
         initViews();
         loadPhoto();
         setupClickListeners();
+        setupZoomControls();
     }
 
     private void initViews() {
@@ -62,6 +87,7 @@ public class PhotoPreviewActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         loadingText = findViewById(R.id.loadingText);
         successCard = findViewById(R.id.successCard);
+        zoomText = findViewById(R.id.zoomText);
     }
 
     private void loadPhoto() {
@@ -87,7 +113,13 @@ public class PhotoPreviewActivity extends AppCompatActivity {
 
             if (photoBitmap != null) {
                 previewImage.setImageBitmap(photoBitmap);
-                animatePreviewIn();
+                previewImage.setScaleType(ImageView.ScaleType.MATRIX);
+
+                // Центрируем изображение
+                previewImage.post(() -> {
+                    centerImage();
+                    animatePreviewIn();
+                });
             } else {
                 Toast.makeText(this, "Ошибка декодирования фото", Toast.LENGTH_SHORT).show();
                 finish();
@@ -100,15 +132,226 @@ public class PhotoPreviewActivity extends AppCompatActivity {
         }
     }
 
+    private void setupZoomControls() {
+        scaleGestureDetector = new ScaleGestureDetector(this, new ScaleListener());
+
+        previewImage.setOnTouchListener((v, event) -> {
+            scaleGestureDetector.onTouchEvent(event);
+
+            PointF curr = new PointF(event.getX(), event.getY());
+
+            switch (event.getAction() & MotionEvent.ACTION_MASK) {
+                case MotionEvent.ACTION_DOWN:
+                    savedMatrix.set(matrix);
+                    start.set(event.getX(), event.getY());
+                    mode = DRAG;
+                    break;
+
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    oldDist = spacing(event);
+                    if (oldDist > 10f) {
+                        savedMatrix.set(matrix);
+                        midPoint(mid, event);
+                        mode = ZOOM;
+                    }
+                    break;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_POINTER_UP:
+                    mode = NONE;
+
+                    // Скрываем индикатор зума через 1 секунду
+                    if (zoomText != null) {
+                        zoomText.postDelayed(() -> {
+                            if (zoomText != null && zoomText.getVisibility() == View.VISIBLE) {
+                                zoomText.animate()
+                                        .alpha(0f)
+                                        .setDuration(200)
+                                        .withEndAction(() -> {
+                                            if (zoomText != null) {
+                                                zoomText.setVisibility(View.GONE);
+                                            }
+                                        })
+                                        .start();
+                            }
+                        }, 1000);
+                    }
+                    break;
+
+                case MotionEvent.ACTION_MOVE:
+                    if (mode == DRAG && currentScale > minScale) {
+                        matrix.set(savedMatrix);
+                        float dx = curr.x - start.x;
+                        float dy = curr.y - start.y;
+                        matrix.postTranslate(dx, dy);
+                    } else if (mode == ZOOM) {
+                        float newDist = spacing(event);
+                        if (newDist > 10f) {
+                            matrix.set(savedMatrix);
+                            float scale = newDist / oldDist;
+                            matrix.postScale(scale, scale, mid.x, mid.y);
+                        }
+                    }
+                    break;
+            }
+
+            // Применяем трансформацию
+            checkAndSetImageMatrix();
+            return true;
+        });
+    }
+
+    private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            float scaleFactor = detector.getScaleFactor();
+            float newScale = currentScale * scaleFactor;
+
+            // Ограничиваем масштаб
+            newScale = Math.max(minScale, Math.min(newScale, maxScale));
+
+            float scaleChange = newScale / currentScale;
+            currentScale = newScale;
+
+            matrix.postScale(scaleChange, scaleChange,
+                    detector.getFocusX(), detector.getFocusY());
+
+            checkAndSetImageMatrix();
+            updateZoomIndicator();
+
+            return true;
+        }
+
+        @Override
+        public boolean onScaleBegin(ScaleGestureDetector detector) {
+            mode = ZOOM;
+            return true;
+        }
+
+        @Override
+        public void onScaleEnd(ScaleGestureDetector detector) {
+            mode = NONE;
+        }
+    }
+
+    private void updateZoomIndicator() {
+        if (zoomText != null) {
+            zoomText.setText(String.format(Locale.getDefault(), "%.1fx", currentScale));
+
+            if (zoomText.getVisibility() != View.VISIBLE) {
+                zoomText.setAlpha(0f);
+                zoomText.setVisibility(View.VISIBLE);
+                zoomText.animate()
+                        .alpha(1f)
+                        .setDuration(200)
+                        .start();
+            }
+        }
+    }
+
+    private void checkAndSetImageMatrix() {
+        if (previewImage == null || photoBitmap == null) return;
+
+        float[] values = new float[9];
+        matrix.getValues(values);
+
+        float x = values[Matrix.MTRANS_X];
+        float y = values[Matrix.MTRANS_Y];
+        float scaleX = values[Matrix.MSCALE_X];
+        float scaleY = values[Matrix.MSCALE_Y];
+
+        int viewWidth = previewImage.getWidth();
+        int viewHeight = previewImage.getHeight();
+        int imageWidth = photoBitmap.getWidth();
+        int imageHeight = photoBitmap.getHeight();
+
+        float scaledImageWidth = imageWidth * scaleX;
+        float scaledImageHeight = imageHeight * scaleY;
+
+        // Ограничиваем перемещение
+        float maxX = 0;
+        float minX = viewWidth - scaledImageWidth;
+        float maxY = 0;
+        float minY = viewHeight - scaledImageHeight;
+
+        // Если изображение меньше view, центрируем его
+        if (scaledImageWidth <= viewWidth) {
+            x = (viewWidth - scaledImageWidth) / 2;
+        } else {
+            // Ограничиваем перемещение по X
+            if (x > maxX) x = maxX;
+            if (x < minX) x = minX;
+        }
+
+        if (scaledImageHeight <= viewHeight) {
+            y = (viewHeight - scaledImageHeight) / 2;
+        } else {
+            // Ограничиваем перемещение по Y
+            if (y > maxY) y = maxY;
+            if (y < minY) y = minY;
+        }
+
+        // Обновляем значения в матрице
+        values[Matrix.MTRANS_X] = x;
+        values[Matrix.MTRANS_Y] = y;
+        matrix.setValues(values);
+
+        // Обновляем currentScale
+        currentScale = scaleX;
+
+        previewImage.setImageMatrix(matrix);
+    }
+
+    private void centerImage() {
+        if (previewImage == null || photoBitmap == null) return;
+
+        int viewWidth = previewImage.getWidth();
+        int viewHeight = previewImage.getHeight();
+        int imageWidth = photoBitmap.getWidth();
+        int imageHeight = photoBitmap.getHeight();
+
+        if (viewWidth == 0 || viewHeight == 0) return;
+
+        // Вычисляем масштаб для fit center
+        float scaleX = (float) viewWidth / imageWidth;
+        float scaleY = (float) viewHeight / imageHeight;
+        float scale = Math.min(scaleX, scaleY);
+
+        // Центрируем
+        float scaledWidth = imageWidth * scale;
+        float scaledHeight = imageHeight * scale;
+        float dx = (viewWidth - scaledWidth) / 2;
+        float dy = (viewHeight - scaledHeight) / 2;
+
+        matrix.reset();
+        matrix.postScale(scale, scale);
+        matrix.postTranslate(dx, dy);
+
+        currentScale = scale;
+        minScale = scale;
+
+        previewImage.setImageMatrix(matrix);
+    }
+
+    private float spacing(MotionEvent event) {
+        if (event.getPointerCount() < 2) return 0;
+        float x = event.getX(0) - event.getX(1);
+        float y = event.getY(0) - event.getY(1);
+        return (float) Math.sqrt(x * x + y * y);
+    }
+
+    private void midPoint(PointF point, MotionEvent event) {
+        if (event.getPointerCount() < 2) return;
+        float x = event.getX(0) + event.getX(1);
+        float y = event.getY(0) + event.getY(1);
+        point.set(x / 2, y / 2);
+    }
+
     private void animatePreviewIn() {
         previewImage.setAlpha(0f);
-        previewImage.setScaleX(0.9f);
-        previewImage.setScaleY(0.9f);
 
         previewImage.animate()
                 .alpha(1f)
-                .scaleX(1f)
-                .scaleY(1f)
                 .setDuration(300)
                 .start();
 
